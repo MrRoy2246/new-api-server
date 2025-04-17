@@ -1,0 +1,18 @@
+def post(self,request):
+        auth_token = request.headders.get('Authorization')
+        payload = request.data
+------->
+
+POST /example-endpoint/
+Authorization: Bearer abc123
+Content-Type: application/json
+
+{
+  "name": "John",
+  "email": "john@example.com"
+}
+Then:
+
+auth_token would be "Bearer abc123"
+
+payload would be {'name': 'John', 'email': 'john@example.com'}
