@@ -51,10 +51,55 @@ class VisitorDetailAPIView(APIView):
         visitor = self.get_object(pk)
         if not visitor:
             return Response({'error': 'Visitor not found'}, status=404)
-        visitor.delete()
-        return Response({'message': 'Visitor deleted'}, status=204)
+        visitor.soft_delete()
+        return Response({'message': 'Visitor soft deleted'}, status=204)
+    
+class VisitorReportAPIView(APIView):
+    def get(self, request):
+        visitors = Visitor.all_objects.all().order_by('-created_at')
+        serializer = VisitorSerializer(visitors, many=True)
+        return Response(serializer.data, status=200)
+    
+class UntrackVisitorListAPIView(APIView):
+    def get(self, request):
+        deleted_visitors = Visitor.all_objects.filter(is_deleted=True).order_by('-created_at')
+        serializer = VisitorSerializer(deleted_visitors, many=True)
+        return Response(serializer.data)
+
+class UntrackVisitorDetailAPIView(APIView):
+    def get(self, request, pk):
+        try:
+            visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Soft-deleted visitor not found'}, status=404)
+
+        serializer = VisitorSerializer(visitor)
+        return Response(serializer.data)
+    
+class RestoreVisitorAPIView(APIView):
+    def post(self, request, pk):
+        try:
+            visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Soft-deleted visitor not found'}, status=404)
+
+        visitor.restore()
+        return Response({'message': 'Visitor restored successfully'}, status=200)
+ 
 
 
+
+
+
+
+
+
+
+
+
+
+
+# ===============================================================
 class LoginApiView(APIView):
     def post(self,request):
         payload = request.data

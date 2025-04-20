@@ -1,4 +1,9 @@
 from django.db import models
+import uuid
+
+class VisitorManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
 
 class Visitor(models.Model):
     IDENTIFICATION_CHOICES = [
@@ -11,7 +16,7 @@ class Visitor(models.Model):
         ('female', 'Female'),
         ('other', 'Other'),
     ]
-
+    uid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # New unique UUID field
     full_name = models.CharField(max_length=100) #required
     email = models.EmailField() #required
     phone_number = models.CharField(max_length=20) #required
@@ -24,11 +29,25 @@ class Visitor(models.Model):
     exit_time = models.DateTimeField(null=True, blank=True)
     note = models.TextField(blank=True, null=True)
     track_status = models.BooleanField(default=False) 
+    is_deleted = models.BooleanField(default=False)
     
     # ✅ Timestamps
     created_at = models.DateTimeField(auto_now_add=True)  
     updated_at = models.DateTimeField(auto_now=True) 
 
+    # Managers
+    objects = VisitorManager()
+    all_objects = models.Manager()
+
 
     def __str__(self):
-        return f"{self.full_name} ({self.identification_type.upper()} - {self.identification_number})"
+        return f"{self.full_name}"
+    
+    def soft_delete(self):
+        self.is_deleted = True
+        self.track_status = False
+        self.save()
+
+    def restore(self):
+        self.is_deleted = False
+        self.save()
