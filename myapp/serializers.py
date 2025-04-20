@@ -25,10 +25,16 @@ class VisitorSerializer(serializers.ModelSerializer):
         read_only_fields = ['uid', 'created_at', 'updated_at']
 
     def validate_email(self, value):
-        if Visitor.all_objects.filter(email=value, is_deleted=False).exists():
+        # Exclude self when updating
+        instance = self.instance
+        if Visitor.all_objects.filter(email=value, is_deleted=False).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError("A visitor with this email already exists.")
         return value
+
     def validate_phone_number(self, value):
-        if Visitor.all_objects.filter(phone_number=value, is_deleted=False).exists():
+        # Exclude self when updating
+        instance = self.instance
+        if Visitor.all_objects.filter(phone_number=value, is_deleted=False).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError("A visitor with this phone number already exists.")
         return value
+

@@ -5,10 +5,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 # Create your views here.
-
 from .models import Visitor
 from .serializers import VisitorSerializer
-
+from rest_framework.permissions import IsAuthenticated
 class VisitorListCreateAPIView(APIView):
     def get(self, request):
         visitors = Visitor.objects.all().order_by('-created_at')
@@ -21,22 +20,18 @@ class VisitorListCreateAPIView(APIView):
             serializer.save()
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
-
-
 class VisitorDetailAPIView(APIView):
     def get_object(self, pk):
         try:
             return Visitor.objects.get(pk=pk)
         except Visitor.DoesNotExist:
             return None
-
     def get(self, request, pk):
         visitor = self.get_object(pk)
         if not visitor:
             return Response({'error': 'Visitor not found'}, status=404)
         serializer = VisitorSerializer(visitor)
         return Response(serializer.data)
-
     def put(self, request, pk):
         visitor = self.get_object(pk)
         if not visitor:
@@ -46,46 +41,87 @@ class VisitorDetailAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
-
     def delete(self, request, pk):
         visitor = self.get_object(pk)
         if not visitor:
             return Response({'error': 'Visitor not found'}, status=404)
-        visitor.soft_delete()
-        return Response({'message': 'Visitor soft deleted'}, status=204)
-    
+        role= 1
+        if role == 1:
+            visitor.soft_delete()
+            return Response({'message': 'Visitor soft deleted by role 1'}, status=204)
+        elif role in [2,3,4,5]:
+            visitor.soft_delete()
+            return Response({'message': f'Visitor soft deleted by role {role}'}, status=204)
+        else:
+            return Response({'error': 'Unauthorized role'}, status=403)
+        
+class TrackedVisitorAPIView(APIView):
+    def get(self, request):
+        tracked_visitors= Visitor.all_objects.filter(track_status=True).order_by('-created_at')
+        serializer = VisitorSerializer(tracked_visitors, many=True)
+        return Response(serializer.data,status=200)
+class UntrackedVisitorAPIView(APIView):
+    def get(self, request):
+        untracked_visitors= Visitor.all_objects.filter(track_status=False).order_by('-created_at')
+        serializer = VisitorSerializer(untracked_visitors, many=True)
+        return Response(serializer.data,status=200)
+class TrackedVisitorDetailAPIView(APIView):
+    def get(self, request, pk):
+        try:
+            tracked_visitor = Visitor.all_objects.get(pk=pk, track_status=True)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Soft-deleted visitor not found'}, status=404)
+        serializer = VisitorSerializer(tracked_visitor)
+        return Response(serializer.data,status=200)
+class UntrackedVisitorDetailAPIView(APIView):
+    def get(self, request, pk):
+        try:
+            untracked_visitor = Visitor.all_objects.get(pk=pk, track_status=False)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Soft-deleted visitor not found'}, status=404)
+        serializer = VisitorSerializer(untracked_visitor)
+        return Response(serializer.data,status=200)
 class VisitorReportAPIView(APIView):
     def get(self, request):
         visitors = Visitor.all_objects.all().order_by('-created_at')
         serializer = VisitorSerializer(visitors, many=True)
-        return Response(serializer.data, status=200)
-    
-class UntrackVisitorListAPIView(APIView):
+        return Response(serializer.data, status=200) 
+class SoftDeleteVisitorListAPIView(APIView):
     def get(self, request):
         deleted_visitors = Visitor.all_objects.filter(is_deleted=True).order_by('-created_at')
         serializer = VisitorSerializer(deleted_visitors, many=True)
         return Response(serializer.data)
-
-class UntrackVisitorDetailAPIView(APIView):
+class SoftDeleteVisitorDetailAPIView(APIView):
     def get(self, request, pk):
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
         except Visitor.DoesNotExist:
             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-
         serializer = VisitorSerializer(visitor)
         return Response(serializer.data)
-    
 class RestoreVisitorAPIView(APIView):
     def post(self, request, pk):
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
         except Visitor.DoesNotExist:
             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-
         visitor.restore()
         return Response({'message': 'Visitor restored successfully'}, status=200)
  
+class PermanentDeleteVisitorAPIView(APIView):
+    def delete(self, request, pk):
+        role = 2
+        
+        if role != 1:
+            return Response({'error': 'You are not allowed to permanently delete visitors.'}, status=403)
+
+        try:
+            visitor = Visitor.all_objects.get(pk=pk)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Visitor not found'}, status=404)
+
+        visitor.delete()
+        return Response({'message': 'Visitor permanently deleted'}, status=200)
 
 
 

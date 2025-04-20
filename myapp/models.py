@@ -1,10 +1,8 @@
 from django.db import models
 import uuid
-
 class VisitorManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
-
 class Visitor(models.Model):
     IDENTIFICATION_CHOICES = [
         ('nid', 'NID'),
@@ -30,24 +28,16 @@ class Visitor(models.Model):
     note = models.TextField(blank=True, null=True)
     track_status = models.BooleanField(default=False) 
     is_deleted = models.BooleanField(default=False)
-    
-    # ✅ Timestamps
     created_at = models.DateTimeField(auto_now_add=True)  
     updated_at = models.DateTimeField(auto_now=True) 
-
-    # Managers
     objects = VisitorManager()
     all_objects = models.Manager()
-
-
     def __str__(self):
         return f"{self.full_name}"
-    
     def soft_delete(self):
         self.is_deleted = True
-        self.track_status = False
+        # self.track_status = False
         self.save()
-
     def restore(self):
         self.is_deleted = False
         self.save()
