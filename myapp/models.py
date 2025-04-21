@@ -15,14 +15,15 @@ class Visitor(models.Model):
         ('other', 'Other'),
     ]
     uid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)  # New unique UUID field
-    full_name = models.CharField(max_length=100) #required
+    first_name = models.CharField(max_length=50) #required
+    last_name = models.CharField(max_length=50) #required
     email = models.EmailField() #required
     phone_number = models.CharField(max_length=20) #required
     company_name = models.CharField(max_length=100, blank=True, null=True)
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, default='other') #required
     identification_type = models.CharField(max_length=10, choices=IDENTIFICATION_CHOICES,null=True, blank=True)
     identification_number = models.CharField(max_length=50,null=True, blank=True)
-    photo = models.ImageField(upload_to='visitor_photos/', null=True, blank=True) #required
+    photo = models.ImageField(upload_to='visitor_photos/') #required
     entry_time = models.DateTimeField(null=True, blank=True)
     exit_time = models.DateTimeField(null=True, blank=True)
     note = models.TextField(blank=True, null=True)

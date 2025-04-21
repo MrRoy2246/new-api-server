@@ -1,3 +1,15 @@
+env 3.10 need because mediapipe only support 3. or lower version of python
+
+
+
+
+
+
+
+
+
+
+
 def post(self,request):
         auth_token = request.headders.get('Authorization')
         payload = request.data

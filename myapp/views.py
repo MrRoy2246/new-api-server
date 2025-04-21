@@ -36,7 +36,7 @@ class VisitorDetailAPIView(APIView):
         visitor = self.get_object(pk)
         if not visitor:
             return Response({'error': 'Visitor not found'}, status=404)
-        serializer = VisitorSerializer(visitor, data=request.data)
+        serializer = VisitorSerializer(visitor, data=request.data,partial= True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
@@ -53,22 +53,21 @@ class VisitorDetailAPIView(APIView):
             visitor.soft_delete()
             return Response({'message': f'Visitor soft deleted by role {role}'}, status=204)
         else:
-            return Response({'error': 'Unauthorized role'}, status=403)
-        
+            return Response({'error': 'Unauthorized role'}, status=403)     
 class TrackedVisitorAPIView(APIView):
     def get(self, request):
-        tracked_visitors= Visitor.all_objects.filter(track_status=True).order_by('-created_at')
+        tracked_visitors= Visitor.objects.filter(track_status=True).order_by('-created_at')
         serializer = VisitorSerializer(tracked_visitors, many=True)
         return Response(serializer.data,status=200)
 class UntrackedVisitorAPIView(APIView):
     def get(self, request):
-        untracked_visitors= Visitor.all_objects.filter(track_status=False).order_by('-created_at')
+        untracked_visitors= Visitor.objects.filter(track_status=False).order_by('-created_at')
         serializer = VisitorSerializer(untracked_visitors, many=True)
         return Response(serializer.data,status=200)
 class TrackedVisitorDetailAPIView(APIView):
     def get(self, request, pk):
         try:
-            tracked_visitor = Visitor.all_objects.get(pk=pk, track_status=True)
+            tracked_visitor = Visitor.objects.get(pk=pk, track_status=True)
         except Visitor.DoesNotExist:
             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
         serializer = VisitorSerializer(tracked_visitor)
@@ -76,7 +75,7 @@ class TrackedVisitorDetailAPIView(APIView):
 class UntrackedVisitorDetailAPIView(APIView):
     def get(self, request, pk):
         try:
-            untracked_visitor = Visitor.all_objects.get(pk=pk, track_status=False)
+            untracked_visitor = Visitor.objects.get(pk=pk, track_status=False)
         except Visitor.DoesNotExist:
             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
         serializer = VisitorSerializer(untracked_visitor)
@@ -107,19 +106,15 @@ class RestoreVisitorAPIView(APIView):
             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
         visitor.restore()
         return Response({'message': 'Visitor restored successfully'}, status=200)
- 
 class PermanentDeleteVisitorAPIView(APIView):
     def delete(self, request, pk):
-        role = 2
-        
+        role = 2   
         if role != 1:
             return Response({'error': 'You are not allowed to permanently delete visitors.'}, status=403)
-
         try:
             visitor = Visitor.all_objects.get(pk=pk)
         except Visitor.DoesNotExist:
             return Response({'error': 'Visitor not found'}, status=404)
-
         visitor.delete()
         return Response({'message': 'Visitor permanently deleted'}, status=200)
 
@@ -185,7 +180,7 @@ class CameraListAPIView(APIView):
             headers={
                 'Authorization': f"Bearer {access_Token}"
             }
-            camera_response=requests.get(camera_list_url)
+            camera_response=requests.get(camera_list_url,headers=headers)
             camera_response.raise_for_status()
             return Response(camera_response.json(),status=200)
         except jwt.DecodeError:
