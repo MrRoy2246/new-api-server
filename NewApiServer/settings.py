@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'myapp',
     'rest_framework',
+    'django_seed',
     
 ]
 
@@ -61,6 +62,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'NewApiServer.wsgi.application'
+ASGI_APPLICATION = 'NewApiServer.asgi.application'
 
 
 # Database

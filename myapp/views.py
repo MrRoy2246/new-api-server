@@ -9,12 +9,23 @@ from .models import Visitor
 from .serializers import VisitorSerializer
 from rest_framework.permissions import IsAuthenticated
 class VisitorListCreateAPIView(APIView):
+    def get_token_from_header(self, request):
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        # print("Full Authorization header:", repr(auth_header))  # <- log full raw header
+        if auth_header.startswith('Token ') or auth_header.startswith('Bearer '):
+            parts = auth_header.split(' ')
+            if len(parts) == 2:
+                return parts[1]
+        return None
     def get(self, request):
+        token = self.get_token_from_header(request)
+        print("Received token:", token)  # or use it however you need
         visitors = Visitor.objects.all().order_by('-created_at')
         serializer = VisitorSerializer(visitors, many=True)
         return Response(serializer.data, status=200)
-
     def post(self, request):
+        token = self.get_token_from_header(request)
+        print("Received token:", token)
         serializer = VisitorSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -100,6 +111,9 @@ class SoftDeleteVisitorDetailAPIView(APIView):
         return Response(serializer.data)
 class RestoreVisitorAPIView(APIView):
     def post(self, request, pk):
+        role = 2   
+        if role != 1:
+            return Response({'error': 'You are not allowed to restore visitors.'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
         except Visitor.DoesNotExist:
