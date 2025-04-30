@@ -4,20 +4,19 @@ from .ml_models.face_detector import face_detector_instance
 from PIL import Image
 import cv2
 import numpy as np
-
 class VisitorSerializer(serializers.ModelSerializer):
     face_detect = serializers.BooleanField(write_only=True, required=False, default=True)
     class Meta:
         model = Visitor
         fields = [
             'id',
-            'uid',
             'first_name',
             'last_name',
             'email',
             'phone_number',
             'company_name',
             'gender',
+            # 'visitor_type',  # <-- Include this
             'identification_type',
             'identification_number',
             'photo',
@@ -30,8 +29,6 @@ class VisitorSerializer(serializers.ModelSerializer):
             'face_detect',
         ]
         read_only_fields = ['uid', 'created_at', 'updated_at']
-    
-
     def create(self, validated_data):
         validated_data.pop('face_detect', None)  # Remove before saving
         return super().create(validated_data)
@@ -85,13 +82,6 @@ class VisitorSerializer(serializers.ModelSerializer):
         if not face_detect or str(face_detect).lower() == "false":
             image.seek(0)  # Reset pointer for saving
             return image  # Skip all validations
-
-        # import cv2
-        # import numpy as np
-        # from PIL import Image
-        # from .ml_models.face_detector import face_detector_instance
-
-        # Check file type using Pillow
         try:
             img_pil = Image.open(image)
             image_format = img_pil.format.lower()
@@ -99,63 +89,48 @@ class VisitorSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Unsupported image format. Only JPEG and PNG are allowed.")
         except Exception:
             raise serializers.ValidationError("Invalid image or unreadable format.")
-
         # Check file size (<5MB)
         max_size = 5 * 1024 * 1024
         if image.size > max_size:
             raise serializers.ValidationError("Image size must be under 5MB.")
-
         #Decode image for OpenCV processing
         image.seek(0)  # Important: reset pointer for reading raw bytes
         file_bytes = np.asarray(bytearray(image.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         if img is None:
             raise serializers.ValidationError("Failed to decode image.")
-
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
         # Blur check
         if cv2.Laplacian(gray, cv2.CV_64F).var() < 100.0:
             raise serializers.ValidationError("Image is too blurry. Please upload a clearer photo.")
-
         # Detect face
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = face_detector_instance.detect(img_rgb)
-
         if not results.detections:
             raise serializers.ValidationError("No face detected.")
         if len(results.detections) > 1:
             raise serializers.ValidationError("Multiple faces detected. Upload a photo with only one face.")
-
-        #Check frontal face
-       
+        #Check frontal face 
         detection = results.detections[0]
         keypoints = detection.location_data.relative_keypoints
-
         left_eye = keypoints[0]
         right_eye = keypoints[1]
         nose_tip = keypoints[2]
-        mouth = keypoints[3]
-
-    
+        mouth = keypoints[3] 
         # Reject side-views (yaw)
         eye_center_x = (left_eye.x + right_eye.x) / 2.0
         nose_center_offset = abs(nose_tip.x - eye_center_x)
         print(f"this is nose center offset{nose_center_offset}")
         if nose_center_offset > 0.02:
             raise serializers.ValidationError("Face is turned sideways. Please face the camera.")
-
         # Reject looking up/down (pitch)
         eye_center_y = (left_eye.y + right_eye.y) / 2.0
-
         # Distances
         eye_to_nose = nose_tip.y - eye_center_y
         nose_to_mouth = mouth.y - nose_tip.y
-
         # Ratio check for up/down pose
         ratio = eye_to_nose / (nose_to_mouth + 1e-6)  # avoid zero division
         print(f"ratio is {ratio}")
-
         if ratio < 0.75:
             raise serializers.ValidationError("Looking up. Please face the camera.")
         elif ratio > 1.9:

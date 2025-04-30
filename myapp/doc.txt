@@ -1,7 +1,11 @@
 env 3.10 need because mediapipe only support 3. or lower version of python
 
 
+photo validate medaipipe open cv
 
+multiple image thakle reject
+human no hole reject
+front view na hole reject.
 
 
 

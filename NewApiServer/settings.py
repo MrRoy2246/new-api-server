@@ -1,25 +1,26 @@
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+import storages.backends.s3boto3
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+
+
+load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-sjty_3a^5xukhny$qni2=$p1e@at%mw-&e%ime^x@9*f$w28@8'
 
-# SECURITY WARNING: don't run with debug turned on in production!
+
+# MEDIA_DIR = BASE_DIR / 'media'
+STATIC_DIR = BASE_DIR / 'static'
+
 DEBUG = True
-
 ALLOWED_HOSTS = []
-
-
 # Application definition
 
 INSTALLED_APPS = [
+    'storages',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -29,6 +30,8 @@ INSTALLED_APPS = [
     'myapp',
     'rest_framework',
     'django_seed',
+    'channels',
+    
     
 ]
 
@@ -65,13 +68,35 @@ WSGI_APPLICATION = 'NewApiServer.wsgi.application'
 ASGI_APPLICATION = 'NewApiServer.asgi.application'
 
 
+
+
+# Use in-memory channel layer for development (or Redis for production)
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',  # Use Redis backend in production
+    },
+}
+
+
+
+
+
+
+
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3new',
     }
 }
 
@@ -112,13 +137,64 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
-STATIC_URL = 'static/'
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "admin")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "Accelx@123456")
+AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "abin-roy")  
+
+AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL", "https://minioodb.accelx.net")
+AWS_QUERYSTRING_AUTH = False
+AWS_S3_ADDRESSING_STYLE = "path"
+AWS_S3_VERIFY = os.getenv("AWS_S3_VERIFY", "True") == "True"
+
+
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'static'
+MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/'
+print(MEDIA_URL)
+
+
+
+
+
+print("🧪 Using storage backend:", DEFAULT_FILE_STORAGE)
+
+# import boto3
+# from botocore.exceptions import ClientError
+
+# session = boto3.session.Session()
+
+# s3 = session.client(
+#     service_name='s3',
+#     endpoint_url='http://192.168.1.150:9000',
+#     aws_access_key_id='acceleye_api',
+#     aws_secret_access_key='Accelx@123456',
+# )
+
+# try:
+#     response = s3.list_buckets()
+#     print("✅ MinIO Connected! Buckets:")
+#     for bucket in response['Buckets']:
+#         print(f" - {bucket['Name']}")
+# except ClientError as e:
+#     print("❌ Failed to connect to MinIO:", e)
+
+# print("✅ MinIO Config Loaded:", AWS_S3_ENDPOINT_URL, AWS_STORAGE_BUCKET_NAME)
+
+
+
+# import boto3
+# from botocore.client import Config
+
+# s3 = boto3.client('s3',
+#     endpoint_url='https://minioodb.accelx.net',
+#     aws_access_key_id='acceleye_api',
+#     aws_secret_access_key='Accelx@123456',
+#     config=Config(signature_version='s3v4'),
+#     verify=False  # only if self-signed cert
+# )
+
+# response = s3.list_objects_v2(Bucket='abinroy')
+# print(response)
