@@ -4,8 +4,7 @@ from dotenv import load_dotenv
 import storages.backends.s3boto3
 
 
-
-load_dotenv()
+load_dotenv(dotenv_path = r'C:\ABIN-Work\NewApiServer\NewApiServer\.env')
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 

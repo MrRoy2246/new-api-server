@@ -10,14 +10,16 @@ from .serializers import VisitorSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from django.core.files.uploadedfile import SimpleUploadedFile
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
 from dateutil.parser import parse as parse_datetime
-
+from .utils import get_minio_client
+from django.conf import settings
+import difflib
+from rest_framework.exceptions import ValidationError
 
 class VisitorPagination(PageNumberPagination):
     page_size = 10 
-
-
 class VisitorBaseView(APIView):
     def get_token_from_header(self, request):
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
@@ -26,7 +28,6 @@ class VisitorBaseView(APIView):
             if len(parts) == 2:
                 return parts[1]
         return None
-
     def is_token_valid(self, token):
         url = "https://api.accelx.net/gd_apidev/user/token/verify/"
         try:
@@ -34,37 +35,103 @@ class VisitorBaseView(APIView):
             return response.status_code == 200
         except requests.RequestException:
             return False
-
-    # def get_role_from_token(self, token):
-    #     try:
-    #         decoded = jwt.decode(token,options={"verify_signature": False})
-    #         return decoded.get("role")
-    #     except jwt.DecodeError:
-    #         return None
-
-
+    def get_role_from_token(self, token):
+        try:
+            decoded = jwt.decode(token,options={"verify_signature": False})
+            return decoded.get("role")
+        except jwt.DecodeError:
+            return None
 class VisitorAPIView(VisitorBaseView):
     pagination_class = VisitorPagination
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    # def get_queryset(self, request):
+    #     show_deleted = request.query_params.get('show_deleted') == 'true'
+    #     track_status = request.query_params.get('track_status')
+
+    #     # queryset = Visitor.all_objects.filter(is_deleted=True) if show_deleted else Visitor.objects.filter(is_deleted=False)
+    #     queryset = Visitor.all_objects.all()
+    #     if show_deleted:
+    #         queryset= queryset.filter(is_deleted=True)
+    #     else:
+    #         queryset = queryset.filter(is_deleted=False)
+
+    #     if track_status is not None:
+    #         if track_status.lower() == 'true':
+    #             queryset = queryset.filter(track_status=True)
+    #         elif track_status.lower() == 'false':
+    #             queryset = queryset.filter(track_status=False)
+
+    #     return queryset.order_by('-created_at')
+
+    # def get(self, request, pk=None):
+    #     token = self.get_token_from_header(request)
+    #     if not token or not self.is_token_valid(token):
+    #         return Response({'error': 'Invalid or missing token'}, status=403)
+        
+    #     show_deleted = request.query_params.get('show_deleted') == 'true'
+    #     if pk:
+    #         try:
+    #             visitor = Visitor.all_objects.get(pk=pk)
+            
+    #         # Check if the visitor is soft-deleted
+    #             if visitor.is_deleted and not show_deleted:
+    #                 return Response({'error': 'Visitor is soft deleted. If you want to show soft deleted visitors, please use show_deleted=true.'}, status=410)
+    #             # If visitor is active and show_deleted is passed, return a message saying it is not soft-deleted
+    #             if not visitor.is_deleted and show_deleted:
+    #                 return Response({'message': 'Visitor is not soft deleted.'}, status=200)
+    #         except Visitor.DoesNotExist:
+    #             return Response({'error': 'Visitor not found'}, status=404)
+        
+    #         serializer = VisitorSerializer(visitor)
+    #         return Response(serializer.data)
+
+    #     queryset = self.get_queryset(request)
+    #     paginator = self.pagination_class()
+    #     page = paginator.paginate_queryset(queryset, request)
+    #     serializer = VisitorSerializer(page, many=True)
+    #     return paginator.get_paginated_response(serializer.data)
+
+# above code works fine but we need all active +soft in same endpoint
+    
+
+    
 
     def get_queryset(self, request):
-        show_deleted = request.query_params.get('show_deleted') == 'true'
+        only_deleted = request.query_params.get('only_deleted')
+        visitor_type_param = request.query_params.get('visitor_type')
         track_status = request.query_params.get('track_status')
-
-        queryset = Visitor.all_objects.filter(is_deleted=True) if show_deleted else Visitor.objects.filter(is_deleted=False)
-
+        queryset = Visitor.all_objects.all()  # Start with all visitors
+        if only_deleted == 'true':
+            queryset = queryset.filter(is_deleted=True)
+        elif only_deleted == 'false':
+            queryset = queryset.filter(is_deleted=False)
+        if visitor_type_param:
+            visitor_types = [vt.strip().lower() for vt in visitor_type_param.split(',')]
+            valid_types = [choice[0] for choice in Visitor.VISITOR_TYPE_CHOICES]
+            invalid_types = [t for t in visitor_types if t not in valid_types]
+            if invalid_types:
+                suggestions = {
+                    t: difflib.get_close_matches(t, valid_types, n=1)
+                    for t in invalid_types
+                }
+                raise ValidationError({
+                    "error": "Invalid visitor_type value(s).",
+                    "invalid": invalid_types,
+                    "did_you_mean": {k: v[0] if v else None for k, v in suggestions.items()}
+                })
+            queryset = queryset.filter(visitor_type__in=visitor_types)
         if track_status is not None:
             if track_status.lower() == 'true':
                 queryset = queryset.filter(track_status=True)
             elif track_status.lower() == 'false':
                 queryset = queryset.filter(track_status=False)
-
         return queryset.order_by('-created_at')
-
     def get(self, request, pk=None):
         # token = self.get_token_from_header(request)
+        # print(f"this is token test->{token}")
         # if not token or not self.is_token_valid(token):
         #     return Response({'error': 'Invalid or missing token'}, status=403)
-
         if pk:
             try:
                 visitor = Visitor.all_objects.get(pk=pk)
@@ -72,97 +139,96 @@ class VisitorAPIView(VisitorBaseView):
                 return Response({'error': 'Visitor not found'}, status=404)
             serializer = VisitorSerializer(visitor)
             return Response(serializer.data)
-
         queryset = self.get_queryset(request)
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = VisitorSerializer(page, many=True)
+        # photo_url=visitor.photo
+        # print(photo_url)
+        
         return paginator.get_paginated_response(serializer.data)
-
     def post(self, request):
+        # token = self.get_token_from_header(request)
+        # print(f"this is test token->{token}")
+        # if not token or not self.is_token_valid(token):
+        #     return Response({'error': 'Invalid or missing token'}, status=403)
+        data = request.data.copy()
+        serializer = VisitorSerializer(data=data)
+        if serializer.is_valid():
+            photo = data.get('photo') or request.FILES.get('photo')
+            file_key = None
+            if photo:
+                s3 = get_minio_client()
+                file_key = f"localtest/visitor_photos/{photo.name}"
+                try:
+                    s3.upload_fileobj(
+                        photo,
+                        settings.AWS_STORAGE_BUCKET_NAME,
+                        file_key,
+                        ExtraArgs={'ContentType': photo.content_type}
+                    )
+                except Exception as e:
+                    return Response({"error": f"Upload failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                serializer.validated_data.pop('photo', None)
+            visitor = serializer.save()
+            if file_key:
+                visitor.photo.name = file_key  # Just set the key/path
+                visitor.save()
+            photo_url=visitor.photo.url
+            print(photo_url)
+            return Response(VisitorSerializer(visitor).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def put(self, request, pk):
         # token = self.get_token_from_header(request)
         # if not token or not self.is_token_valid(token):
         #     return Response({'error': 'Invalid or missing token'}, status=403)
-
-
-        # visitor = Visitor.objects.create(
-        #     first_name="abinnew",
-        #     last_name="roy",
-        #     email="john1.doe@example.com",
-        #     phone_number="12345678901",
-        #     gender="male",
-        #     photo ="GOODDD.jpg"
-        # )
-        # return Response("creation done")
-
-        serializer = VisitorSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=201)
-        return Response(serializer.errors, status=400)
-
-    def put(self, request, pk):
-        token = self.get_token_from_header(request)
-        if not token or not self.is_token_valid(token):
-            return Response({'error': 'Invalid or missing token'}, status=403)
-
         try:
             visitor = Visitor.all_objects.get(pk=pk)
         except Visitor.DoesNotExist:
             return Response({'error': 'Visitor not found'}, status=404)
-
         serializer = VisitorSerializer(visitor, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
-
     def delete(self, request, pk):
-        token = self.get_token_from_header(request)
-        if not token or not self.is_token_valid(token):
-            return Response({'error': 'Invalid or missing token'}, status=403)
-
+        # token = self.get_token_from_header(request)
+        # if not token or not self.is_token_valid(token):
+        #     return Response({'error': 'Invalid or missing token'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk)
         except Visitor.DoesNotExist:
             return Response({'error': 'Visitor not found'}, status=404)
-
         # role = self.get_role_from_token(token)
-        role=2
         permanent = request.query_params.get('permanent') == 'true'
-
         if permanent:
-            if role == 1:
+            try:
                 visitor.delete()
                 return Response({'message': 'Visitor permanently deleted'}, status=200)
-            return Response({'error': 'You are not allowed to permanently delete visitors.'}, status=403)
-        
-        # 🧠 Check if already soft-deleted
+            except Exception as e:
+                return Response({'error': f'Permanent delete failed: {str(e)}'}, status=500)  
         if visitor.is_deleted:
             return Response({'error': 'Visitor is already soft-deleted.'}, status=409)
-
         visitor.soft_delete()
-        return Response({'message': 'Visitor soft deleted'}, status=204)
-    
-
+        return Response({'message': 'Visitor soft deleteded successfully.'}, status=200)
 class RestoreVisitorAPIView(VisitorBaseView):
     def post(self, request, pk):
-        token = self.get_token_from_header(request)
-        if not token or not self.is_token_valid(token):
-            return Response({'error': 'Invalid or missing token'}, status=403)
-
-        # role = self.get_role_from_token(token)
-        role=1
-        if role != 1:
-            return Response({'error': 'You are not allowed to restore visitors.'}, status=403)
-
+        # token = self.get_token_from_header(request)
+        # if not token or not self.is_token_valid(token):
+        #     return Response({'error': 'Invalid or missing token'}, status=403)
+        Response({'error': 'You are not allowed to restore visitors.'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
         except Visitor.DoesNotExist:
             return Response({'error': 'Visitor not found or not deleted'}, status=404)
-
         visitor.restore()
         return Response({'message': 'Visitor restored successfully'}, status=200)
+
+
+
+
+
+
 
 # # views.py
 
@@ -177,6 +243,62 @@ class RestoreVisitorAPIView(VisitorBaseView):
 #             for choice in Visitor.VISITOR_TYPE_CHOICES
 #         ]
 #         return Response(types, status=200)
+
+
+# views.py (add this below your VisitorAPIView or in the same file)
+
+# class VisitorTypeListAPIView(VisitorBaseView):
+#     def get(self, request):
+#         # token = self.get_token_from_header(request)
+#         # if not token or not self.is_token_valid(token):
+#         #     return Response({'error': 'You are not authorized to perform this action.'}, status=403)
+
+#         types = [{"id": key, "type": label} for key, label in Visitor.VISITOR_TYPE_CHOICES]
+#         return Response(types, status=200)
+
+
+from .serializers import VisitorWithTypeSerializer
+import difflib
+
+class VisitorTypeListAPIView(APIView):
+    def get(self, request):
+        visitor_type_param = request.query_params.get('visitor_type')
+        visitors = Visitor.all_objects.all()
+
+        if visitor_type_param:
+            type_ids = [t.strip().lower() for t in visitor_type_param.split(',')]
+            valid_ids = [choice[0] for choice in Visitor.VISITOR_TYPE_CHOICES]
+
+            invalid_ids = [t for t in type_ids if t not in valid_ids]
+
+            if invalid_ids:
+                suggestions = {
+                    invalid: difflib.get_close_matches(invalid, valid_ids, n=1)
+                    for invalid in invalid_ids
+                }
+
+                error_response = {
+                    "error": "One or more invalid visitor_type values.",
+                    "invalid_values": invalid_ids,
+                    "did_you_mean": {k: v[0] if v else None for k, v in suggestions.items()}
+                }
+                return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
+
+            visitors = visitors.filter(visitor_type__in=type_ids)
+
+        serializer = VisitorWithTypeSerializer(visitors, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class VisitorDetailWithTypeAPIView(APIView):
+    def get(self, request, pk):
+        try:
+            visitor = Visitor.all_objects.get(pk=pk)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Visitor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = VisitorWithTypeSerializer(visitor)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 class VisitorTrackAPIView(APIView):
@@ -226,301 +348,6 @@ class VisitorTrackAPIView(APIView):
             return Response({'error': f'Request failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'camera_details': camera_data}, status=status.HTTP_200_OK)
-
-
-# the bellow code is perfect but now i want to try another way in above code
-
-
-# class VisitorBaseView(APIView):
-#     def get_token_from_header(self, request):
-#         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-#         if auth_header.startswith('Token ') or auth_header.startswith('Bearer '):
-#             parts = auth_header.split(' ')
-#             if len(parts) == 2:
-#                 return parts[1]
-#         return None
-
-#     def is_token_valid(self, token):
-#         url = "https://api.accelx.net/gd_apidev/user/token/verify/"  # Replace with your actual validation endpoint
-#         try:
-#             response = requests.post(url, json={"token": token})
-#             return response.status_code == 200
-#         except requests.RequestException as e:
-#             print(f"Token validation request failed: {e}")
-#             return False
-
-
-# class VisitorListCreateAPIView(VisitorBaseView):
-#     def get(self, request):
-#         token = self.get_token_from_header(request)
-#         print("Received token:", token)
-
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         visitors = Visitor.all_objects.all().order_by('-created_at')
-
-#         # Apply pagination
-#         paginator = VisitorPagination()
-#         result_page = paginator.paginate_queryset(visitors, request)
-#         serializer = VisitorSerializer(result_page, many=True)
-#         return paginator.get_paginated_response(serializer.data)
-
-#     def post(self, request):
-#         token = self.get_token_from_header(request)
-#         print("Received token:", token)
-
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         serializer = VisitorSerializer(data=request.data)
-#         if serializer.is_valid():
-#             serializer.save()
-#             return Response(serializer.data, status=201)
-#         return Response(serializer.errors, status=400)
-
-
-# class VisitorDetailAPIView(VisitorBaseView):
-#     def get_object(self, pk):
-#         try:
-#             return Visitor.objects.get(pk=pk)
-#         except Visitor.DoesNotExist:
-#             return None
-
-#     def get(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         visitor = self.get_object(pk)
-#         if not visitor:
-#             return Response({'error': 'Visitor not found'}, status=404)
-
-#         serializer = VisitorSerializer(visitor)
-#         return Response(serializer.data)
-
-#     def put(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         visitor = self.get_object(pk)
-#         if not visitor:
-#             return Response({'error': 'Visitor not found'}, status=404)
-
-#         serializer = VisitorSerializer(visitor, data=request.data, partial=True)
-#         if serializer.is_valid():
-#             serializer.save()
-#             return Response(serializer.data)
-#         return Response(serializer.errors, status=400)
-
-#     def delete(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         visitor = self.get_object(pk)
-#         if not visitor:
-#             return Response({'error': 'Visitor not found'}, status=404)
-
-#         role = 1  # Update this as per your real logic
-#         if role in [1, 2, 3, 4, 5]:
-#             visitor.soft_delete()
-#             return Response({'message': f'Visitor soft deleted by role {role}'}, status=204)
-#         else:
-#             return Response({'error': 'Unauthorized role'}, status=403)
-
-
-
-# class TrackedVisitorAPIView(VisitorBaseView):
-#     def get(self, request):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         tracked_visitors = Visitor.objects.filter(track_status=True).order_by('-created_at')
-        
-#         # Apply pagination
-#         paginator = VisitorPagination()
-#         result_page = paginator.paginate_queryset(tracked_visitors, request)
-#         serializer = VisitorSerializer(result_page, many=True)
-#         return paginator.get_paginated_response(serializer.data)
-
-
-# class UntrackedVisitorAPIView(VisitorBaseView):
-#     def get(self, request):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         untracked_visitors = Visitor.objects.filter(track_status=False).order_by('-created_at')
-
-#         # Apply pagination
-#         paginator = VisitorPagination()
-#         result_page = paginator.paginate_queryset(untracked_visitors, request)
-#         serializer = VisitorSerializer(result_page, many=True)
-#         return paginator.get_paginated_response(serializer.data)
-
-# class TrackedVisitorDetailAPIView(VisitorBaseView):
-#     def get(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         try:
-#             tracked_visitor = Visitor.objects.get(pk=pk, track_status=True)
-#         except Visitor.DoesNotExist:
-#             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-#         serializer = VisitorSerializer(tracked_visitor)
-#         return Response(serializer.data, status=200)
-
-
-# class UntrackedVisitorDetailAPIView(VisitorBaseView):
-#     def get(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         try:
-#             untracked_visitor = Visitor.objects.get(pk=pk, track_status=False)
-#         except Visitor.DoesNotExist:
-#             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-#         serializer = VisitorSerializer(untracked_visitor)
-#         return Response(serializer.data, status=200)
-
-
-# class VisitorActiveAPIView(VisitorBaseView):
-#     def get(self, request):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         visitors = Visitor.objects.all().order_by('-created_at')
-
-#         # Apply pagination
-#         paginator = VisitorPagination()  # Assuming VisitorPagination is defined
-#         result_page = paginator.paginate_queryset(visitors, request)
-#         serializer = VisitorSerializer(result_page, many=True)
-#         return paginator.get_paginated_response(serializer.data)
-
-
-# class SoftDeleteVisitorListAPIView(VisitorBaseView):
-#     def get(self, request):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         deleted_visitors = Visitor.all_objects.filter(is_deleted=True).order_by('-created_at')
-
-#         # Apply pagination
-#         paginator = VisitorPagination()  # Assuming VisitorPagination is defined
-#         result_page = paginator.paginate_queryset(deleted_visitors, request)
-#         serializer = VisitorSerializer(result_page, many=True)
-#         return paginator.get_paginated_response(serializer.data)
-
-
-# class SoftDeleteVisitorDetailAPIView(VisitorBaseView):
-#     def get(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         try:
-#             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
-#         except Visitor.DoesNotExist:
-#             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-#         serializer = VisitorSerializer(visitor)
-#         return Response(serializer.data)
-
-
-# class RestoreVisitorAPIView(VisitorBaseView):
-#     def post(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         role = 2  # Replace this with real logic from token/user
-#         if role != 1:
-#             return Response({'error': 'You are not allowed to restore visitors.'}, status=403)
-
-#         try:
-#             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
-#         except Visitor.DoesNotExist:
-#             return Response({'error': 'Soft-deleted visitor not found'}, status=404)
-
-#         visitor.restore()
-#         return Response({'message': 'Visitor restored successfully'}, status=200)
-
-
-# class PermanentDeleteVisitorAPIView(VisitorBaseView):
-#     def delete(self, request, pk):
-#         token = self.get_token_from_header(request)
-#         if not token or not self.is_token_valid(token):
-#             return Response({'error': 'Invalid or missing token'}, status=403)
-
-#         role = 2  # Replace this with role extracted from the token
-#         if role != 1:
-#             return Response({'error': 'You are not allowed to permanently delete visitors.'}, status=403)
-
-#         try:
-#             visitor = Visitor.all_objects.get(pk=pk)
-#         except Visitor.DoesNotExist:
-#             return Response({'error': 'Visitor not found'}, status=404)
-
-#         visitor.delete()
-#         return Response({'message': 'Visitor permanently deleted'}, status=200)
-
-
-
-
-# class VisitorTrackAPIView(APIView):
-#     def get_token_from_header(self, request):
-#         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-#         if auth_header.startswith('Bearer ') or auth_header.startswith('Token '):
-#             return auth_header.split(' ')[1]
-#         return None
-
-#     def decode_token(self, token):
-#         try:
-#             payload = jwt.decode(token, options={"verify_signature": False})
-#             return payload
-#         except jwt.ExpiredSignatureError:
-#             return {'error': 'Token expired'}
-#         except jwt.InvalidTokenError:
-#             return {'error': 'Invalid token'}
-
-#     def get(self, request):
-#         access_token = self.get_token_from_header(request)
-#         if not access_token:
-#             return Response({'error': 'Token not provided'}, status=status.HTTP_401_UNAUTHORIZED)
-
-#         decoded = self.decode_token(access_token)
-#         if 'error' in decoded:
-#             return Response(decoded, status=status.HTTP_403_FORBIDDEN)
-
-#         institute_id = decoded.get('institute')
-#         if not institute_id:
-#             return Response({'error': 'Institute ID not found in token'}, status=400)
-
-#         # 📌 Specific camera ID
-#         camera_id = 119  # <-- you can later accept this dynamically via query params or path
-#         camera_detail_url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/{camera_id}/?institute={institute_id}"
-#         headers = {
-#             'Authorization': f"Bearer {access_token}"
-#         }
-
-#         try:
-#             response = requests.get(camera_detail_url, headers=headers)
-#             if response.status_code == 200:
-#                 camera_data = response.json()
-#                 return Response({
-#                     'institute_id': institute_id,
-#                     'camera': camera_data
-#                 }, status=200)
-#             else:
-#                 return Response({'error': 'Failed to fetch camera detail'}, status=response.status_code)
-#         except requests.RequestException as e:
-#             return Response({'error': str(e)}, status=500)
 
 
 # ===============================================================
@@ -661,12 +488,6 @@ class VisitorTrackingAPIView(APIView):
             print("EXCEPTION CAUGHT")
             print(str(e))
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-            
-
-
-
-        
-
 
         #     # -------------------------
         #     # Extract frame from response (update based on actual structure)
@@ -692,10 +513,6 @@ class VisitorTrackingAPIView(APIView):
         #     print("EXCEPTION CAUGHT")
         #     print(str(e))
         #     return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-
-
-
 
 
 # 3 function------------------------------------------>
@@ -855,35 +672,23 @@ class VisitorTrackingAPIView(APIView):
 
 
 
-
-
-
-
-
 # MANUAL TEST-------bellow manual test works fine but here i use visitor uid now try with id
-        
-
 
 import base64
 import logging
 import requests
 from io import BytesIO
 from PIL import Image
-
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from myapp.utils import set_request_token, clear_request_token
 from .models import Visitor, VisitorEventHistory
-
 logger = logging.getLogger(__name__)
-
 class MLDetectionAPIView(APIView):
     def post(self, request, *args, **kwargs):
         try:
@@ -892,24 +697,19 @@ class MLDetectionAPIView(APIView):
             token = request.headers.get("Authorization")
             if token and token.startswith("Bearer "):
                 token = token[len("Bearer "):]
-            capture_time_str = request.data.get("capture_time")
+            capture_time = request.data.get("capture_time")
             manual_visitor_ids = request.data.get("visitor_ids")  # Manual test support
 
-            if not (camera_id and token and capture_time_str):
+            if not (camera_id and token and capture_time):
                 return Response({"error": "Missing camera_id, token, or capture_time"}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Convert capture_time
-            try:
-                capture_time = timezone.datetime.fromisoformat(capture_time_str)
-            except Exception:
-                return Response({"error": "Invalid capture_time format"}, status=400)
-
-            # ✅ Manual test path (ML server bypass)
+            # try:
+            #     capture_time = capture_time
+            # except Exception:
+            #     return Response({"error": "Invalid capture_time format"}, status=400)
             if manual_visitor_ids:
                 visitors = Visitor.objects.filter(id__in=manual_visitor_ids)
                 if not visitors.exists():
                     return Response({"error": "No valid visitors found"}, status=404)
-
                 try:
                     self.create_event(visitors, camera_id, token, capture_time)
                     return Response({
@@ -919,8 +719,6 @@ class MLDetectionAPIView(APIView):
                     }, status=200)
                 except Exception as e:
                     return Response({"error": str(e)}, status=400)
-
-            # ✅ ML server flow
             if not frame:
                 return Response({"error": "Missing frame for ML processing"}, status=400)
 
@@ -929,13 +727,10 @@ class MLDetectionAPIView(APIView):
         except Exception as e:
             logger.error(f"Error in ML detection view: {e}")
             return Response({"error": "Internal server error"}, status=500)
-
     def send_to_ml_server(self, frame, camera_id, token, capture_time):
         try:
             frame_data = base64.b64decode(frame)
             img_file = SimpleUploadedFile("frame.jpg", frame_data, content_type="image/jpeg")
-
-            # Send visitor images to ML server
             visitor_files = []
             for visitor in Visitor.objects.filter(is_deleted=False, photo__isnull=False):
                 try:
@@ -945,10 +740,8 @@ class MLDetectionAPIView(APIView):
                         )
                 except Exception as e:
                     logger.warning(f"Error reading visitor image: {e}")
-
             files = [('frame', img_file)] + visitor_files
             response = requests.post("http://mlserver.com/detect", files=files, data={'camera_id': camera_id, 'token': token})
-
             if response.status_code == 200:
                 detection_data = response.json()
                 visitor_ids = detection_data.get('visitor_ids', [])
@@ -962,33 +755,50 @@ class MLDetectionAPIView(APIView):
             logger.error(f"ML server communication error: {e}")
             return {"status": "error", "message": "Error contacting ML server"}
 
+    # def create_event(self, visitors, camera_id, token, capture_time):
+    #     try:
+    #         set_request_token(token)
+    #         capture_time = timezone.make_aware(capture_time, timezone.get_current_timezone())
+    #         print(capture_time)
+    #         detected_time = timezone.now()
+    #         visitor_ids = [str(visitor.id) for visitor in visitors]
+    #         logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}, visitors {visitor_ids}")
+    #         event = VisitorEventHistory.objects.create(
+    #             visitor_ids=visitor_ids,
+    #             camera_id=camera_id,
+    #             snapshot_url="https://default.snapshot",
+    #             capture_time=capture_time,
+    #             detected_time=detected_time,
+    #         )
+    #         event.visitors.set(visitors)  # Add visitors to ManyToManyField
+    #         event.visitor_ids = [str(visitor.id) for visitor in visitors]
+    #         event.save()
+    #     except Exception as e:
+    #         logger.error(f"Error creating event or WebSocket send: {e}")
+    #     finally:
+    #         clear_request_token()  # 👈 Always clear
+
+
     def create_event(self, visitors, camera_id, token, capture_time):
         try:
             set_request_token(token)
-            capture_time=capture_time
-            print(capture_time)
+            capture_time = capture_time
             detected_time = timezone.now()
-            visitor_ids = [str(visitor.id) for visitor in visitors]
-            # camera_info = self.get_camera_info(camera_id, token)
-           
-            # if not camera_info:
-            #     logger.error(f"Camera info not found for camera_id {camera_id}")
-            #     return Response({"error": "Camera info not available"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}, visitors {visitor_ids}")
-        
+
+            logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}")
             event = VisitorEventHistory.objects.create(
-                visitor_ids=visitor_ids,
+                visitor_ids=[],  # Temp empty; will update later
                 camera_id=camera_id,
                 snapshot_url="https://default.snapshot",
                 capture_time=capture_time,
                 detected_time=detected_time,
             )
+            event.visitors.set(visitors)  # This triggers m2m_changed
         except Exception as e:
             logger.error(f"Error creating event or WebSocket send: {e}")
         finally:
-            clear_request_token()  # 👈 Always clear
-    
+            clear_request_token()
+
 
 
 # # Manual test try with visitor id------->>>>>
@@ -1114,7 +924,6 @@ class MLDetectionAPIView(APIView):
 
 
 
-
 # ------------------------------Camera Detection Detail for visitor 
             
 
@@ -1166,53 +975,314 @@ class MLDetectionAPIView(APIView):
 #         except Exception as e:
 #             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-import base64
+
+
+# -------------------------------------------------
+
+
+
+
+# visitor ditection camera detail with token auth    
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.shortcuts import get_object_or_404
-from .models import Visitor, VisitorEventHistory
+from .models import VisitorEventHistory
+import base64
+import requests
+import logging
+logger = logging.getLogger(__name__)
+def get_base64_from_url(url):
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return base64.b64encode(response.content).decode('utf-8')
+        else:
+            return None
+    except Exception as e:
+        return None
+class VisitorDetectionsView(APIView):
+    def get_token_from_header(self, request):
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header.startswith('Token ') or auth_header.startswith('Bearer '):
+            parts = auth_header.split(' ')
+            if len(parts) == 2:
+                return parts[1]
+        return None
+    def is_token_valid(self, token):
+        url = "https://api.accelx.net/gd_apidev/user/token/verify/"
+        try:
+            response = requests.post(url, json={"token": token})
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+    def get(self, request, visitor_id):
+        try:
+            token = self.get_token_from_header(request)
+            if not token or not self.is_token_valid(token):
+                return Response({'error': 'Invalid or missing token'}, status=403)
 
-class VisitorDetectionsAPIView(APIView):
-    def get(self, request, visitor_id, *args, **kwargs):
-        # ✅ Get visitor object or return 404
-        visitor = get_object_or_404(Visitor, pk=visitor_id)
 
-        # ✅ Get detections where this visitor's UID appears
-        detections = VisitorEventHistory.objects.filter(
-            visitor_ids__contains=[str(visitor.uid)]
-        ).order_by('-detected_time')
+            # Manually filter visitor_ids from all objects
+            all_detections = VisitorEventHistory.objects.all()
+            detections = [d for d in all_detections if visitor_id in d.visitor_ids]
+            # detections = VisitorEventHistory.objects.filter(visitors__id=visitor_id)
+            detections.sort(key=lambda d: d.id, reverse=True)
 
-        if not detections.exists():
-            return Response({"detail": "No detections found for this visitor."}, status=status.HTTP_404_NOT_FOUND)
+            
+            if not detections:
+                return Response({"error": "No detections found."}, status=status.HTTP_404_NOT_FOUND)
+            data = []
+            for d in detections:
+                image_base64 = get_base64_from_url(d.snapshot_url)
+                visitor_first_names = [v.first_name for v in d.visitors.all()]
+                data.append({
+                    "detection_id": f"detect-{d.id}",
+                    "cam_id": d.camera_id,
+                    "location": d.camera_location,
+                    "lat": d.latitude,
+                    "long": d.longitude,
+                    "detected_time": d.detected_time.isoformat() if d.detected_time else None,
+                    "exit_time": None,
+                    "image": image_base64,
+                    "visitors": visitor_first_names  # 👈 Add first names here
+                })
+            return Response(data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error in VisitorDetectionsView: {e}")
+            return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        results = []
-        for detection in detections:
-            try:
-                # Read and encode image to base64
-                image_url = detection.snapshot_url
-                if image_url:
-                    import requests
-                    img_response = requests.get(image_url)
-                    if img_response.status_code == 200:
-                        image_data = base64.b64encode(img_response.content).decode('utf-8')
-                        base64_image = f"data:image/jpeg;base64,{image_data}"
-                    else:
-                        base64_image = None
-                else:
-                    base64_image = None
-            except Exception:
-                base64_image = None
+        
 
-            results.append({
-                "detection_id": detection.id,
-                "cam_id": detection.camera_id,
-                "location": detection.camera_location,
-                "lat": detection.latitude,
-                "long": detection.longitude,
-                "detected_time": detection.detected_time.isoformat(),
-                "exit_time": detection.capture_time.isoformat(),
-                "image": base64_image
-            })
 
-        return Response(results, status=status.HTTP_200_OK)
+
+
+# -------------------------------work fine only with detecte_time filter--
+
+#     # chat----->
+    
+from django.db.models import Q
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
+from django.utils import timezone
+from django.db.models import Q, Count
+from django.db.models.functions import TruncHour, TruncDay
+from datetime import timedelta
+from dateutil.parser import parse as parse_datetime
+import logging
+
+from .models import VisitorEventHistory, Visitor
+from .serializers import VisitorEventHistorySerializer
+
+logger = logging.getLogger(__name__)
+
+class VisitorReportPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+
+class VisitorReportAPIView(APIView):
+    pagination_class = VisitorReportPagination
+
+    def get(self, request):
+        try:
+            # Get query params
+            start_time = request.query_params.get('start_time')
+            end_time = request.query_params.get('end_time')
+            last_minutes = request.query_params.get('last_minutes')
+            last_days = request.query_params.get('last_days')
+            camera_id = request.query_params.get('camera_id')
+            visitor_id = request.query_params.get('visitor_id')
+            visitor_name = request.query_params.get('visitor_name')
+            group_by = request.query_params.get('group_by')  # 'hour' or 'day'
+
+            # Base queryset
+            queryset = VisitorEventHistory.objects.prefetch_related('visitors').all().order_by('-detected_time')
+
+            # Helper: parse datetime safely
+            def parse_dt(value):
+                try:
+                    dt = parse_datetime(value)
+                    if timezone.is_naive(dt):
+                        dt = timezone.make_aware(dt, timezone=timezone.utc)
+                    return dt
+                except Exception as e:
+                    logger.warning(f"Invalid datetime input: {value} -> {e}")
+                    return None
+
+            # Time filters
+            start_dt = parse_dt(start_time) if start_time else None
+            end_dt = parse_dt(end_time) if end_time else None
+
+            if start_dt:
+                queryset = queryset.filter(detected_time__gte=start_dt)
+
+            if end_dt:
+                queryset = queryset.filter(detected_time__lte=end_dt)
+
+            if last_minutes:
+                try:
+                    minutes = int(last_minutes)
+                    threshold = timezone.now() - timedelta(minutes=minutes)
+                    queryset = queryset.filter(detected_time__gte=threshold)
+                except ValueError:
+                    return Response({"error": "last_minutes must be an integer"}, status=400)
+
+            if last_days:
+                try:
+                    days = int(last_days)
+                    threshold = timezone.now() - timedelta(days=days)
+                    queryset = queryset.filter(detected_time__gte=threshold)
+                except ValueError:
+                    return Response({"error": "last_days must be an integer"}, status=400)
+
+            if camera_id is None or camera_id.strip() == '':
+                return Response({"error": "Camera ID cannot be empty"}, status=400)
+            
+            queryset = queryset.filter(camera_id=camera_id)
+
+
+            if visitor_id:
+                queryset = queryset.filter(visitors__id=visitor_id)
+
+            if visitor_name:
+                queryset = queryset.filter(
+                    Q(visitors__first_name__icontains=visitor_name) |
+                    Q(visitors__last_name__icontains=visitor_name)
+                )
+
+            # Paginate standard list
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(queryset, request)
+            serializer = VisitorEventHistorySerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        except Exception as e:
+            logger.exception("❌ Error in VisitorReportAPIView")
+            return Response({"error": "Internal Server Error"}, status=500)
+
+
+
+
+# # -----------------
+# from rest_framework.pagination import PageNumberPagination
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from django.db.models import Q
+# from django.utils import timezone
+# from datetime import timedelta
+# import logging
+# import pytz
+# from dateutil.parser import parse as parse_datetime
+
+# from .serializers import VisitorEventHistorySerializer
+# from .models import VisitorEventHistory
+
+# logger = logging.getLogger(__name__)
+
+
+# class VisitorReportPagination(PageNumberPagination):
+#     page_size = 10
+#     page_size_query_param = 'page_size'
+
+
+# class VisitorReportAPIView(APIView):
+#     pagination_class = VisitorReportPagination
+
+#     def get(self, request):
+#         try:
+#             # Query params
+#             start_time = request.query_params.get('start_time')
+#             end_time = request.query_params.get('end_time')
+#             last_minutes = request.query_params.get('last_minutes')
+#             last_days = request.query_params.get('last_days')
+#             camera_id = request.query_params.get('camera_id')
+#             visitor_id = request.query_params.get('visitor_id')
+#             visitor_name = request.query_params.get('visitor_name')
+
+#             queryset = VisitorEventHistory.objects.prefetch_related('visitors').all()
+
+#             # Parse datetime filters
+#             def parse_dt(value):
+#                 try:
+#                     dt = parse_datetime(value, fuzzy=True)
+#                     if timezone.is_naive(dt):
+#                         dt = timezone.make_aware(dt, timezone=pytz.UTC)
+#                     return dt
+#                 except Exception as e:
+#                     logger.warning(f"Invalid datetime format: {value} -> {e}")
+#                     return None
+
+#             start_dt = parse_dt(start_time) if start_time else None
+#             end_dt = parse_dt(end_time) if end_time else None
+#             threshold = None
+
+#             if last_minutes:
+#                 try:
+#                     minutes = int(last_minutes)
+#                     threshold = timezone.now() - timedelta(minutes=minutes)
+#                 except ValueError:
+#                     return Response({"error": "last_minutes must be an integer"}, status=400)
+
+#             if last_days:
+#                 try:
+#                     days = int(last_days)
+#                     threshold = timezone.now() - timedelta(days=days)
+#                 except ValueError:
+#                     return Response({"error": "last_days must be an integer"}, status=400)
+
+#             # Apply direct DB filters
+#             if camera_id:
+#                 queryset = queryset.filter(camera_id=camera_id)
+
+#             if visitor_id:
+#                 queryset = queryset.filter(visitors__id=visitor_id)
+
+#             if visitor_name:
+#                 queryset = queryset.filter(
+#                     Q(visitors__first_name__icontains=visitor_name) |
+#                     Q(visitors__last_name__icontains=visitor_name)
+#                 )
+
+#             # In-memory filtering for capture_time and detected_time
+#             filtered_events = []
+#             for event in queryset:
+#                 try:
+#                     capture_dt = parse_datetime(event.capture_time, fuzzy=True)
+#                     if timezone.is_naive(capture_dt):
+#                         capture_dt = timezone.make_aware(capture_dt, timezone=pytz.UTC)
+#                 except Exception as e:
+#                     logger.warning(f"Skipping event {event.id} due to invalid capture_time: {e}")
+#                     capture_dt = None
+
+#                 include = True
+
+#                 if start_dt:
+#                     if event.detected_time < start_dt and (not capture_dt or capture_dt < start_dt):
+#                         include = False
+
+#                 if end_dt:
+#                     if event.detected_time > end_dt and (capture_dt and capture_dt > end_dt):
+#                         include = False
+
+#                 if threshold:
+#                     if event.detected_time < threshold and (not capture_dt or capture_dt < threshold):
+#                         include = False
+
+#                 if include:
+#                     filtered_events.append(event)
+
+#             # Final pagination
+#             event_ids = [e.id for e in filtered_events]
+#             final_queryset = VisitorEventHistory.objects.filter(id__in=event_ids).order_by('-detected_time')
+
+#             paginator = self.pagination_class()
+#             page = paginator.paginate_queryset(final_queryset, request)
+#             serializer = VisitorEventHistorySerializer(page, many=True)
+#             return paginator.get_paginated_response(serializer.data)
+
+#         except Exception as e:
+#             logger.exception("Unexpected error in VisitorReportAPIView")
+#             return Response({"error": "Internal Server Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
