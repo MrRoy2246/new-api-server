@@ -44,7 +44,6 @@ class VisitorBaseView(APIView):
 class VisitorAPIView(VisitorBaseView):
     pagination_class = VisitorPagination
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-
     def get_queryset(self, request):
         only_deleted = request.query_params.get('only_deleted')
         visitor_type_param = request.query_params.get('visitor_type')
@@ -76,38 +75,20 @@ class VisitorAPIView(VisitorBaseView):
                 queryset = queryset.filter(track_status=False)
         return queryset.order_by('-created_at')
     def get(self, request, pk=None):
-        # token = self.get_token_from_header(request)
-        # print(f"this is token test->{token}")
-        # if not token or not self.is_token_valid(token):
-        #     return Response({'error': 'Invalid or missing token'}, status=403)
         if pk:
             try:
                 visitor = Visitor.all_objects.get(pk=pk)
             except Visitor.DoesNotExist:
                 return Response({'error': 'Visitor not found'}, status=404)
             serializer = VisitorSerializer(visitor)
-            # print(visitor.photo.url)
             return Response(serializer.data)
         queryset = self.get_queryset(request)
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = VisitorSerializer(page, many=True)
-        # for visitor in page:
-        #     if visitor.photo:
-        #         print("Photo URL:", visitor.photo.url)
-        # photo_url=visitor.photo
-        # print(photo_url)
-        
         return paginator.get_paginated_response(serializer.data)
-    
     def post(self, request):
-        # token = self.get_token_from_header(request)
-        # if not token or not self.is_token_valid(token):
-        #     return Response({'error': 'Invalid or missing token'}, status=403)
-
         photo = request.FILES.get('photo')
-
-        # Collect and validate input
         visitor_fields = {
             "first_name": request.data.get('first_name'),
             "last_name": request.data.get('last_name'),
@@ -117,24 +98,17 @@ class VisitorAPIView(VisitorBaseView):
             "photo": photo,
             'face_detect': request.data.get('face_detect', True),
         }
-
-        # Check required fields manually before serializer
         required_fields = ['first_name', 'last_name', 'email', 'phone_number', 'gender']
         missing = [field for field in required_fields if not visitor_fields.get(field)]
         if missing:
             return Response({"error": f"Missing required fields: {', '.join(missing)}"}, status=400)
-
         serializer = VisitorSerializer(data=visitor_fields)
-
         if serializer.is_valid():
             file_key = None
-
             if not photo:
                 return Response({"error": "Photo is required."}, status=400)
-
             s3 = get_minio_client()
             file_key = f"localtest/visitor_photos/{photo.name}"
-
             try:
                 s3.upload_fileobj(
                     photo,
@@ -144,26 +118,50 @@ class VisitorAPIView(VisitorBaseView):
                 )
             except Exception as e:
                 return Response({"error": f"Image upload failed: {str(e)}"}, status=500)
-
-            # Avoid default Django storage
             serializer.validated_data.pop('photo', None)
-
             try:
                 visitor = serializer.save()
             except Exception as e:
                 return Response({"error": f"Database save failed: {str(e)}"}, status=500)
-
             if file_key:
                 visitor.photo.name = file_key
                 visitor.save()
 
+
+            # send ml server to store the ml response-------------
+
+            # ml_response= self.send_to_ml_server(visitor)
+            # if ml_response and 'ml_attributes' in ml_response:
+            #     visitor.ml_attributes = ml_response['ml_attributes']
+            #     visitor.save()
+
+
             return Response(VisitorSerializer(visitor).data, status=201)
 
         return Response(serializer.errors, status=400)
+    
+    
+    
+    # def send_to_ml_server(self,visitor):
+    #     photo_url= visitor.photo.url
+    #     photo_data= requests.get(photo_url).content
+    #     try:
+    #         response= requests.post("http://mlserverurl",
+    #                                 files={'frame':photo_data},
+    #                                 data={'visitor_id':visitor.id})
+    #         if response.status_code==200:
+    #             return response.json()
+    #         else:
+    #             return None
+    #     except Exception as e:
+    #         print(f"Error Sending to Ml server: {e}")
+    #         return None
+
+
+
+
+
     def put(self, request, pk):
-        # token = self.get_token_from_header(request)
-        # if not token or not self.is_token_valid(token):
-        #     return Response({'error': 'Invalid or missing token'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk)
         except Visitor.DoesNotExist:
@@ -174,14 +172,10 @@ class VisitorAPIView(VisitorBaseView):
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
     def delete(self, request, pk):
-        # token = self.get_token_from_header(request)
-        # if not token or not self.is_token_valid(token):
-        #     return Response({'error': 'Invalid or missing token'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk)
         except Visitor.DoesNotExist:
             return Response({'error': 'Visitor not found'}, status=404)
-        # role = self.get_role_from_token(token)
         permanent = request.query_params.get('permanent') == 'true'
         if permanent:
             try:
@@ -195,9 +189,6 @@ class VisitorAPIView(VisitorBaseView):
         return Response({'message': 'Visitor soft deleteded successfully.'}, status=200)
 class RestoreVisitorAPIView(VisitorBaseView):
     def post(self, request, pk):
-        # token = self.get_token_from_header(request)
-        # if not token or not self.is_token_valid(token):
-        #     return Response({'error': 'Invalid or missing token'}, status=403)
         Response({'error': 'You are not allowed to restore visitors.'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
@@ -206,295 +197,6 @@ class RestoreVisitorAPIView(VisitorBaseView):
         visitor.restore()
         return Response({'message': 'Visitor restored successfully'}, status=200)
 
-
-
-
-
-
-
-# # views.py
-
-# class VisitorTypeAPIView(APIView):
-#     def get(self, request):
-#         token = VisitorBaseView().get_token_from_header(request)
-#         if not token or not VisitorBaseView().is_token_valid(token):
-#             return Response({'error': 'You are not authorized to perform this action.'}, status=403)
-
-#         types = [
-#             {"id": choice[0], "type": choice[1]}
-#             for choice in Visitor.VISITOR_TYPE_CHOICES
-#         ]
-#         return Response(types, status=200)
-
-
-# views.py (add this below your VisitorAPIView or in the same file)
-
-# class VisitorTypeListAPIView(VisitorBaseView):
-#     def get(self, request):
-#         # token = self.get_token_from_header(request)
-#         # if not token or not self.is_token_valid(token):
-#         #     return Response({'error': 'You are not authorized to perform this action.'}, status=403)
-
-#         types = [{"id": key, "type": label} for key, label in Visitor.VISITOR_TYPE_CHOICES]
-#         return Response(types, status=200)
-
-
-from .serializers import VisitorWithTypeSerializer
-import difflib
-
-class VisitorTypeListAPIView(APIView):
-    def get(self, request):
-        visitor_type_param = request.query_params.get('visitor_type')
-        visitors = Visitor.all_objects.all()
-
-        if visitor_type_param:
-            type_ids = [t.strip().lower() for t in visitor_type_param.split(',')]
-            valid_ids = [choice[0] for choice in Visitor.VISITOR_TYPE_CHOICES]
-
-            invalid_ids = [t for t in type_ids if t not in valid_ids]
-
-            if invalid_ids:
-                suggestions = {
-                    invalid: difflib.get_close_matches(invalid, valid_ids, n=1)
-                    for invalid in invalid_ids
-                }
-
-                error_response = {
-                    "error": "One or more invalid visitor_type values.",
-                    "invalid_values": invalid_ids,
-                    "did_you_mean": {k: v[0] if v else None for k, v in suggestions.items()}
-                }
-                return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
-
-            visitors = visitors.filter(visitor_type__in=type_ids)
-
-        serializer = VisitorWithTypeSerializer(visitors, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class VisitorDetailWithTypeAPIView(APIView):
-    def get(self, request, pk):
-        try:
-            visitor = Visitor.all_objects.get(pk=pk)
-        except Visitor.DoesNotExist:
-            return Response({'error': 'Visitor not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = VisitorWithTypeSerializer(visitor)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-
-
-class VisitorTrackAPIView(APIView):
-    def get_token_from_header(self, request):
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        if auth_header.startswith('Token ') or auth_header.startswith('Bearer '):
-            parts = auth_header.split(' ')
-            if len(parts) == 2:
-                return parts[1]
-        return None
-
-    def get(self, request):
-        token = self.get_token_from_header(request)
-        if not token:
-            return Response({'error': 'Missing token'}, status=status.HTTP_403_FORBIDDEN)
-
-        try:
-            # Decode the token without verifying the signature
-            payload = jwt.decode(token, options={"verify_signature": False})
-            institute_id = payload.get('institute')
-        except jwt.DecodeError:
-            return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not institute_id:
-            return Response({'error': 'Institute not found in token'}, status=status.HTTP_404_NOT_FOUND)
-
-        # External camera API call (POST)
-        try:
-            camera_api_url = "https://api.accelx.net/gd_apidev/camera/camera-setups/133/"
-            headers = {
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
-            }
-            # payload = {'institute': institute_id}
-
-            response = requests.get(camera_api_url, headers=headers)
-
-            if response.status_code != 200:
-                return Response({
-                    'error': 'Failed to fetch camera details',
-                    'status_code': response.status_code,
-                    'response_text': response.text  # Debug info
-                }, status=response.status_code)
-
-            camera_data = response.json()
-        except requests.RequestException as e:
-            return Response({'error': f'Request failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response({'camera_details': camera_data}, status=status.HTTP_200_OK)
-
-
-# ===============================================================
-class LoginApiView(APIView):
-    def post(self,request):
-        payload = request.data
-        print("===== Incoming Request =====")
-        print("Payload:", payload)
-        print("============================")
-        login_url = 'https://api.accelx.net/gd_apidev/user/login/'
-
-        try :
-            response = requests.post(login_url,json=payload)
-            response.raise_for_status()
-            login_data =response.json()
-            access_token = login_data.get('access')
-            if not access_token:
-                return Response({'error':'Access Token not Received'},status=401)
-            return Response({
-                'access_token':access_token
-            },status=200)
-        except requests.exceptions.RequestException as e:
-            return Response({'error': str(e)}, status=502)
-        
-
-class CameraListAPIView(APIView):
-    def post(self,request):
-        access_Token = request.data.get('access_token')
-        # print(f"this is access token{access_Token}")
-
-        if not access_Token:
-            return Response({'error': 'Access token required'},status=400)
-        
-        try:
-            decoded_token = jwt.decode(access_Token, options={"verify_signature": False})
-            institute= decoded_token.get('institute')
-            user_id = decoded_token.get('user_id')
-            username = decoded_token.get('name')
-            role = decoded_token.get('role')
-            print("Decoded JWT Token:")
-            print("User ID:", user_id)
-            print("Username:", username)
-            print("Role:", role)
-            print('Institute:',institute)
-
-            if not institute:
-                return Response({'error':'Institute Id not found in token'},status=400)
-            
-            camera_list_url=f"https://api.accelx.net/gd_apidev/camera/camera-setups/?institute={institute}"
-            headers={
-                'Authorization': f"Bearer {access_Token}"
-            }
-            camera_response=requests.get(camera_list_url,headers=headers)
-            camera_response.raise_for_status()
-            return Response(camera_response.json(),status=200)
-        except jwt.DecodeError:
-            return Response({'error':'Invalid Token'},status=401)
-        except requests.exceptions.RequestException as e:
-            return Response({'error':str(e)},status=502)
-
-            
-
-
-
-
-class VisitorTrackingAPIView(APIView):
-    def post(self,request):
-        auth_token = request.headers.get('Authorization')
-        payload = request.data
-     
-        # test
-        print("===== Incoming Request =====")
-        print("Authorization Header:", auth_token)
-        print("Payload:", payload)
-        print("============================")
-
-        # Set headers for forward this into existing api server.
-        headers = {
-        # 'Authorization': auth_token,
-        'Content-Type': 'application/json'
-        }
-        # Existing api server endpoint
-        exisiting_api_login_url = 'https://api.accelx.net/gd_apidev/user/login/'
-        ml_server_url = 'ml endpoint'
-        try:
-            # send it into login url
-            response = requests.post(exisiting_api_login_url,json=payload)
-            response.raise_for_status()
-            login_data = response.json()
-            Access_Token = login_data.get('access')
-            print("Access Token:", Access_Token)
-            if not Access_Token:
-                return Response({'error': 'Access token not found.'}, status=status.HTTP_401_UNAUTHORIZED)
-            
-            #Decode the token (without verifying signature for now)
-            decoded_token = jwt.decode(Access_Token, options={"verify_signature": False})
-
-            #Extract fields
-            user_id = decoded_token.get('user_id')
-            username = decoded_token.get('name')
-            role = decoded_token.get('role')
-            institute= decoded_token.get('institute')
-
-            print("Decoded JWT Token:")
-            print("User ID:", user_id)
-            print("Username:", username)
-            print("Role:", role)
-            print('Institute:',institute)
-
-            #Call Camera list api to view all camera with institute id
-            if institute:
-                camera_list_url=f"https://api.accelx.net/gd_apidev/camera/camera-setups/?institute={institute}"
-                camera_list_headers={
-                    'Authorization': f"Bearer {Access_Token}"
-                }
-                camera_list_response= requests.get(camera_list_url,headers=camera_list_headers)
-                camera_list_response.raise_for_status()
-                camera_list_data = camera_list_response.json()
-            else:
-                camera_list_data = {"error": "Institute ID not found in token."}
-                
-
-            
-            print("Response from Existing API")
-            print(response.json())
-            print("Response from camera list api")
-            print(camera_list_response.json())
-            return Response({
-                'status': 'success',
-                'external_response': response.json(),
-                'camera_data':camera_list_response.json()
-                
-            }, status=status.HTTP_200_OK)
-
-        # demo test
-        except requests.exceptions.RequestException as e:
-            # return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-            print("EXCEPTION CAUGHT")
-            print(str(e))
-            return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-        #     # -------------------------
-        #     # Extract frame from response (update based on actual structure)
-        #     frame_data = response.json().get('frame')
-
-        #     # if there is no frame then return frame not found
-        #     if not frame_data:
-        #         return Response({'error': 'Frame not found in existing API response'},status=400)
-            
-        #     # send frame to ml server
-        #     ml_payload={
-        #         'frame': frame_data
-        #     }
-        #     ml_response = requests.post(ml_server_url,json=ml_payload)
-        #     ml_response.raise_for_status()
-        #     print("ML Server Response")
-        #     print(ml_response.json())
-
-        #     return Response(ml_response.json(), status=ml_response.status_code)
-        
-        # except requests.exceptions.RequestException as e:
-        #     # return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-        #     print("EXCEPTION CAUGHT")
-        #     print(str(e))
-        #     return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 # 3 function------------------------------------------>
@@ -681,7 +383,6 @@ class MLDetectionAPIView(APIView):
                 token = token[len("Bearer "):]
             capture_time = request.data.get("capture_time")
             manual_visitor_ids = request.data.get("visitor_ids")  # Manual test support
-
             if not (camera_id and token and capture_time):
                 return Response({"error": "Missing camera_id, token, or capture_time"}, status=status.HTTP_400_BAD_REQUEST)
             # try:
@@ -703,9 +404,7 @@ class MLDetectionAPIView(APIView):
                     return Response({"error": str(e)}, status=400)
             if not frame:
                 return Response({"error": "Missing frame for ML processing"}, status=400)
-
             return Response(self.send_to_ml_server(frame, camera_id, token, capture_time))
-
         except Exception as e:
             logger.error(f"Error in ML detection view: {e}")
             return Response({"error": "Internal server error"}, status=500)
@@ -736,7 +435,6 @@ class MLDetectionAPIView(APIView):
         except Exception as e:
             logger.error(f"ML server communication error: {e}")
             return {"status": "error", "message": "Error contacting ML server"}
-        
     def create_event(self, visitors, camera_id, token, capture_time):
         try:
             set_request_token(token)
@@ -758,23 +456,17 @@ class MLDetectionAPIView(APIView):
         finally:
             clear_request_token()
 
-
-
-# # Manual test try with visitor id------->>>>>
-        
+# # Manual test try with visitor id------->>>>>   
 # import base64
 # import logging
 # import requests
 # from io import BytesIO
 # from PIL import Image
-
 # from django.utils import timezone
 # from django.core.files.uploadedfile import SimpleUploadedFile
-
 # from rest_framework.views import APIView
 # from rest_framework.response import Response
 # from rest_framework import status
-
 # from channels.layers import get_channel_layer
 # from asgiref.sync import async_to_sync
 # from myapp.utils import set_request_token, clear_request_token
@@ -881,11 +573,8 @@ class MLDetectionAPIView(APIView):
 
 
 
-
-
 # ------------------------------Camera Detection Detail for visitor 
             
-
 
 # import base64
 # import requests
@@ -980,15 +669,11 @@ class VisitorDetectionsView(APIView):
             token = self.get_token_from_header(request)
             if not token or not self.is_token_valid(token):
                 return Response({'error': 'Invalid or missing token'}, status=403)
-
-
             # Manually filter visitor_ids from all objects
             all_detections = VisitorEventHistory.objects.all()
             detections = [d for d in all_detections if visitor_id in d.visitor_ids]
             # detections = VisitorEventHistory.objects.filter(visitors__id=visitor_id)
             detections.sort(key=lambda d: d.id, reverse=True)
-
-            
             if not detections:
                 return Response({"error": "No detections found."}, status=status.HTTP_404_NOT_FOUND)
             data = []
@@ -1011,13 +696,8 @@ class VisitorDetectionsView(APIView):
             logger.error(f"Error in VisitorDetectionsView: {e}")
             return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        
-
-
-
-
 # -------------------------------work fine only with detecte_time filter--
-
+# report
 #     # chat----->
     
 from django.db.models import Q
@@ -1031,22 +711,16 @@ from django.db.models.functions import TruncHour, TruncDay
 from datetime import timedelta
 from dateutil.parser import parse as parse_datetime
 import logging
-
 from .models import VisitorEventHistory, Visitor
 from .serializers import VisitorEventHistorySerializer
-
 logger = logging.getLogger(__name__)
-
 class VisitorReportPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
-
 class VisitorReportAPIView(APIView):
     pagination_class = VisitorReportPagination
-
     def get(self, request):
         try:
-            # Get query params
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             last_minutes = request.query_params.get('last_minutes')
@@ -1054,12 +728,7 @@ class VisitorReportAPIView(APIView):
             camera_id = request.query_params.get('camera_id')
             visitor_id = request.query_params.get('visitor_id')
             visitor_name = request.query_params.get('visitor_name')
-            group_by = request.query_params.get('group_by')  # 'hour' or 'day'
-
-            # Base queryset
             queryset = VisitorEventHistory.objects.prefetch_related('visitors').all().order_by('-detected_time')
-
-            # Helper: parse datetime safely
             def parse_dt(value):
                 try:
                     dt = parse_datetime(value)
@@ -1069,17 +738,12 @@ class VisitorReportAPIView(APIView):
                 except Exception as e:
                     logger.warning(f"Invalid datetime input: {value} -> {e}")
                     return None
-
-            # Time filters
             start_dt = parse_dt(start_time) if start_time else None
             end_dt = parse_dt(end_time) if end_time else None
-
             if start_dt:
                 queryset = queryset.filter(detected_time__gte=start_dt)
-
             if end_dt:
                 queryset = queryset.filter(detected_time__lte=end_dt)
-
             if last_minutes:
                 try:
                     minutes = int(last_minutes)
@@ -1087,7 +751,6 @@ class VisitorReportAPIView(APIView):
                     queryset = queryset.filter(detected_time__gte=threshold)
                 except ValueError:
                     return Response({"error": "last_minutes must be an integer"}, status=400)
-
             if last_days:
                 try:
                     days = int(last_days)
@@ -1095,25 +758,21 @@ class VisitorReportAPIView(APIView):
                     queryset = queryset.filter(detected_time__gte=threshold)
                 except ValueError:
                     return Response({"error": "last_days must be an integer"}, status=400)
-
             if camera_id:
                 queryset = queryset.filter(camera_id=camera_id)
-            
+        
             if visitor_id:
                 queryset = queryset.filter(visitors__id=visitor_id)
-
             if visitor_name:
                 queryset = queryset.filter(
                     Q(visitors__first_name__icontains=visitor_name) |
                     Q(visitors__last_name__icontains=visitor_name)
                 )
-
             # Paginate standard list
             paginator = self.pagination_class()
             page = paginator.paginate_queryset(queryset, request)
             serializer = VisitorEventHistorySerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
-
         except Exception as e:
             logger.exception("❌ Error in VisitorReportAPIView")
             return Response({"error": "Internal Server Error"}, status=500)

@@ -53,8 +53,11 @@ class Visitor(models.Model):
     note = models.TextField(blank=True, null=True)
     track_status = models.BooleanField(default=False) 
     is_deleted = models.BooleanField(default=False)
+    is_tracking_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)  
     updated_at = models.DateTimeField(auto_now=True) 
+    # ml attribute to store mlserver response in our databse------------
+    # ml_attributes = JSONField(null=True, blank=True)
     objects = VisitorManager()
     all_objects = models.Manager()
     def __str__(self):
@@ -81,7 +84,7 @@ class VisitorEventHistory(models.Model):
     camera_model = models.CharField(max_length=100, null=True, blank=True)
     video_process_server_id = models.CharField(max_length=100, null=True, blank=True)
     video_process_server_fixed_id = models.CharField(max_length=100, null=True, blank=True)
-    video_process_server_ip = models.CharField(null=True, blank=True)
+    video_process_server_ip = models.CharField(max_length=100,null=True, blank=True)
     def __str__(self):
         return f"Event at {self.camera_location} on {self.capture_time}"
 logger = logging.getLogger(__name__)

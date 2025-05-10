@@ -6,7 +6,7 @@ from django.urls import path
 # # VisitorListCreateAPIView, VisitorDetailAPIView,VisitorActiveAPIView,SoftDeleteVisitorListAPIView,SoftDeleteVisitorDetailAPIView,TrackedVisitorDetailAPIView,TrackedVisitorAPIView,UntrackedVisitorAPIView,UntrackedVisitorDetailAPIView,PermanentDeleteVisitorAPIView,VisitorTrackAPIView
 
 
-from .views import VisitorAPIView, RestoreVisitorAPIView,VisitorTrackAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorTypeListAPIView,VisitorDetailWithTypeAPIView,VisitorReportAPIView
+from .views import VisitorAPIView, RestoreVisitorAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorReportAPIView
 
 urlpatterns = [
     # path('gateway/', VisitorTrackingAPIView.as_view(),name='visitor_tracking'),
@@ -28,11 +28,8 @@ urlpatterns = [
     path('visitor/<str:pk>/', VisitorAPIView.as_view()),     # Detail, Update, Delete
     path('visitor/restore/<str:pk>', RestoreVisitorAPIView.as_view()),  # Restore
     # path('api/visitor/types/', VisitorTypeAPIView.as_view(), name='visitor-types'),
-    path('visitor/track/', VisitorTrackAPIView.as_view(), name='visitor_track'),
     path('ml-detect/', MLDetectionAPIView.as_view(), name='ml_detect'),
     path('visitor/detections/<str:visitor_id>/', VisitorDetectionsView.as_view(), name='visitor-detections'),
-    path('api/visitor/types/', VisitorTypeListAPIView.as_view(), name='visitor-types'),
-    path('api/visitor/types/<str:pk>/', VisitorDetailWithTypeAPIView.as_view(), name='visitor-types'),
     # path('visitor/report/', VisitorReportAPIView.as_view(), name='visitor-report'),
 
     path('api/visitor-reports/', VisitorReportAPIView.as_view(), name='visitor-reports'),

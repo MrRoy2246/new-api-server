@@ -34,6 +34,7 @@ class VisitorSerializer(serializers.ModelSerializer):
             'exit_time',
             'note',
             'track_status',
+            'is_tracking_enabled',
             'created_at',
             'updated_at',
             'face_detect',
