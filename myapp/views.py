@@ -45,58 +45,6 @@ class VisitorAPIView(VisitorBaseView):
     pagination_class = VisitorPagination
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    # def get_queryset(self, request):
-    #     show_deleted = request.query_params.get('show_deleted') == 'true'
-    #     track_status = request.query_params.get('track_status')
-
-    #     # queryset = Visitor.all_objects.filter(is_deleted=True) if show_deleted else Visitor.objects.filter(is_deleted=False)
-    #     queryset = Visitor.all_objects.all()
-    #     if show_deleted:
-    #         queryset= queryset.filter(is_deleted=True)
-    #     else:
-    #         queryset = queryset.filter(is_deleted=False)
-
-    #     if track_status is not None:
-    #         if track_status.lower() == 'true':
-    #             queryset = queryset.filter(track_status=True)
-    #         elif track_status.lower() == 'false':
-    #             queryset = queryset.filter(track_status=False)
-
-    #     return queryset.order_by('-created_at')
-
-    # def get(self, request, pk=None):
-    #     token = self.get_token_from_header(request)
-    #     if not token or not self.is_token_valid(token):
-    #         return Response({'error': 'Invalid or missing token'}, status=403)
-        
-    #     show_deleted = request.query_params.get('show_deleted') == 'true'
-    #     if pk:
-    #         try:
-    #             visitor = Visitor.all_objects.get(pk=pk)
-            
-    #         # Check if the visitor is soft-deleted
-    #             if visitor.is_deleted and not show_deleted:
-    #                 return Response({'error': 'Visitor is soft deleted. If you want to show soft deleted visitors, please use show_deleted=true.'}, status=410)
-    #             # If visitor is active and show_deleted is passed, return a message saying it is not soft-deleted
-    #             if not visitor.is_deleted and show_deleted:
-    #                 return Response({'message': 'Visitor is not soft deleted.'}, status=200)
-    #         except Visitor.DoesNotExist:
-    #             return Response({'error': 'Visitor not found'}, status=404)
-        
-    #         serializer = VisitorSerializer(visitor)
-    #         return Response(serializer.data)
-
-    #     queryset = self.get_queryset(request)
-    #     paginator = self.pagination_class()
-    #     page = paginator.paginate_queryset(queryset, request)
-    #     serializer = VisitorSerializer(page, many=True)
-    #     return paginator.get_paginated_response(serializer.data)
-
-# above code works fine but we need all active +soft in same endpoint
-    
-
-    
-
     def get_queryset(self, request):
         only_deleted = request.query_params.get('only_deleted')
         visitor_type_param = request.query_params.get('visitor_type')
@@ -138,46 +86,80 @@ class VisitorAPIView(VisitorBaseView):
             except Visitor.DoesNotExist:
                 return Response({'error': 'Visitor not found'}, status=404)
             serializer = VisitorSerializer(visitor)
+            # print(visitor.photo.url)
             return Response(serializer.data)
         queryset = self.get_queryset(request)
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(queryset, request)
         serializer = VisitorSerializer(page, many=True)
+        # for visitor in page:
+        #     if visitor.photo:
+        #         print("Photo URL:", visitor.photo.url)
         # photo_url=visitor.photo
         # print(photo_url)
         
         return paginator.get_paginated_response(serializer.data)
+    
     def post(self, request):
         # token = self.get_token_from_header(request)
-        # print(f"this is test token->{token}")
         # if not token or not self.is_token_valid(token):
         #     return Response({'error': 'Invalid or missing token'}, status=403)
-        data = request.data.copy()
-        serializer = VisitorSerializer(data=data)
+
+        photo = request.FILES.get('photo')
+
+        # Collect and validate input
+        visitor_fields = {
+            "first_name": request.data.get('first_name'),
+            "last_name": request.data.get('last_name'),
+            "email": request.data.get('email'),
+            "phone_number": request.data.get('phone_number'),
+            "gender": request.data.get('gender'),
+            "photo": photo,
+            'face_detect': request.data.get('face_detect', True),
+        }
+
+        # Check required fields manually before serializer
+        required_fields = ['first_name', 'last_name', 'email', 'phone_number', 'gender']
+        missing = [field for field in required_fields if not visitor_fields.get(field)]
+        if missing:
+            return Response({"error": f"Missing required fields: {', '.join(missing)}"}, status=400)
+
+        serializer = VisitorSerializer(data=visitor_fields)
+
         if serializer.is_valid():
-            photo = data.get('photo') or request.FILES.get('photo')
             file_key = None
-            if photo:
-                s3 = get_minio_client()
-                file_key = f"localtest/visitor_photos/{photo.name}"
-                try:
-                    s3.upload_fileobj(
-                        photo,
-                        settings.AWS_STORAGE_BUCKET_NAME,
-                        file_key,
-                        ExtraArgs={'ContentType': photo.content_type}
-                    )
-                except Exception as e:
-                    return Response({"error": f"Upload failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                serializer.validated_data.pop('photo', None)
-            visitor = serializer.save()
+
+            if not photo:
+                return Response({"error": "Photo is required."}, status=400)
+
+            s3 = get_minio_client()
+            file_key = f"localtest/visitor_photos/{photo.name}"
+
+            try:
+                s3.upload_fileobj(
+                    photo,
+                    settings.AWS_STORAGE_BUCKET_NAME,
+                    file_key,
+                    ExtraArgs={'ContentType': photo.content_type}
+                )
+            except Exception as e:
+                return Response({"error": f"Image upload failed: {str(e)}"}, status=500)
+
+            # Avoid default Django storage
+            serializer.validated_data.pop('photo', None)
+
+            try:
+                visitor = serializer.save()
+            except Exception as e:
+                return Response({"error": f"Database save failed: {str(e)}"}, status=500)
+
             if file_key:
-                visitor.photo.name = file_key  # Just set the key/path
+                visitor.photo.name = file_key
                 visitor.save()
-            photo_url=visitor.photo.url
-            print(photo_url)
-            return Response(VisitorSerializer(visitor).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(VisitorSerializer(visitor).data, status=201)
+
+        return Response(serializer.errors, status=400)
     def put(self, request, pk):
         # token = self.get_token_from_header(request)
         # if not token or not self.is_token_valid(token):
@@ -754,42 +736,19 @@ class MLDetectionAPIView(APIView):
         except Exception as e:
             logger.error(f"ML server communication error: {e}")
             return {"status": "error", "message": "Error contacting ML server"}
-
-    # def create_event(self, visitors, camera_id, token, capture_time):
-    #     try:
-    #         set_request_token(token)
-    #         capture_time = timezone.make_aware(capture_time, timezone.get_current_timezone())
-    #         print(capture_time)
-    #         detected_time = timezone.now()
-    #         visitor_ids = [str(visitor.id) for visitor in visitors]
-    #         logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}, visitors {visitor_ids}")
-    #         event = VisitorEventHistory.objects.create(
-    #             visitor_ids=visitor_ids,
-    #             camera_id=camera_id,
-    #             snapshot_url="https://default.snapshot",
-    #             capture_time=capture_time,
-    #             detected_time=detected_time,
-    #         )
-    #         event.visitors.set(visitors)  # Add visitors to ManyToManyField
-    #         event.visitor_ids = [str(visitor.id) for visitor in visitors]
-    #         event.save()
-    #     except Exception as e:
-    #         logger.error(f"Error creating event or WebSocket send: {e}")
-    #     finally:
-    #         clear_request_token()  # 👈 Always clear
-
-
+        
     def create_event(self, visitors, camera_id, token, capture_time):
         try:
             set_request_token(token)
             capture_time = capture_time
             detected_time = timezone.now()
+            snapshot_url = visitors[0].photo.url if visitors and visitors[0].photo else "https://default.snapshot"
 
             logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}")
             event = VisitorEventHistory.objects.create(
                 visitor_ids=[],  # Temp empty; will update later
                 camera_id=camera_id,
-                snapshot_url="https://default.snapshot",
+                snapshot_url=snapshot_url,
                 capture_time=capture_time,
                 detected_time=detected_time,
             )
@@ -1137,12 +1096,9 @@ class VisitorReportAPIView(APIView):
                 except ValueError:
                     return Response({"error": "last_days must be an integer"}, status=400)
 
-            if camera_id is None or camera_id.strip() == '':
-                return Response({"error": "Camera ID cannot be empty"}, status=400)
+            if camera_id:
+                queryset = queryset.filter(camera_id=camera_id)
             
-            queryset = queryset.filter(camera_id=camera_id)
-
-
             if visitor_id:
                 queryset = queryset.filter(visitors__id=visitor_id)
 

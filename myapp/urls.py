@@ -35,7 +35,7 @@ urlpatterns = [
     path('api/visitor/types/<str:pk>/', VisitorDetailWithTypeAPIView.as_view(), name='visitor-types'),
     # path('visitor/report/', VisitorReportAPIView.as_view(), name='visitor-report'),
 
-     path('api/visitor-reports/', VisitorReportAPIView.as_view(), name='visitor-reports'),
+    path('api/visitor-reports/', VisitorReportAPIView.as_view(), name='visitor-reports'),
 
     
 

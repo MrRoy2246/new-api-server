@@ -40,7 +40,7 @@ class Visitor(models.Model):
     phone_number = models.CharField(max_length=20) #required
     company_name = models.CharField(max_length=100, blank=True, null=True)
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, default='other') #required
-    visitor_type = models.CharField(max_length=20 ,choices=VISITOR_TYPE_CHOICES, default='guest')
+    visitor_type = models.CharField(max_length=20 ,choices=VISITOR_TYPE_CHOICES, default='guest',blank=True,null=True)
     identification_type = models.CharField(max_length=10, choices=IDENTIFICATION_CHOICES,null=True, blank=True)
     identification_number = models.CharField(max_length=50,null=True, blank=True)
     photo = models.ImageField(
@@ -202,7 +202,7 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
         instance.camera_location = camera_info.get("location_name")
         instance.latitude = camera_info.get("latitude")
         instance.longitude = camera_info.get("longitude")
-        instance.snapshot_url = camera_info.get("snapshot_url", "https://default.snapshot")
+        # instance.snapshot_url = camera_info.get("snapshot_url", "https://default.snapshot")
         instance.institute = camera_info.get("institute")
         instance.camera_model = camera_info.get("camera_model")
         instance.video_process_server_id = camera_info.get("video_process_server_id")
@@ -221,7 +221,7 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
             capture_time_iso = capture_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
         except ValueError:
             capture_time_iso = instance.capture_time  # Fallback to raw string
-
+        photo_urls = [v.photo.url for v in instance.visitors.all() if v.photo]
         message = {
             "event": "visitor_detected",
             "camera_id": camera_id,
@@ -231,7 +231,7 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
             "visitor_ids": instance.visitor_ids,
             "detected_time": instance.detected_time.isoformat(),
             "capture_time": capture_time_iso, # It's now a string
-            "snapshot_url": instance.snapshot_url,
+            "snapshot_url": photo_urls,
         }
         group_name = "visitor_events"
         channel_layer = get_channel_layer()
@@ -306,7 +306,7 @@ def get_camera_info(camera_id, token):
                 'latitude': data.get('latitude'),
                 'longitude': data.get('longitude'),
                 'location_name': data.get('location_name'),
-                'snapshot_url': data.get('url'),
+                # 'snapshot_url': data.get('url'),
                 'institute': data.get('institute'),
                 'camera_model': data.get('camera_model'),
                 'video_process_server_id': data.get('video_process_server_info', {}).get('video_process_server_id'),

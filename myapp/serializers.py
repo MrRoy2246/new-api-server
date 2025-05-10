@@ -9,6 +9,9 @@ class VisitorSerializer(serializers.ModelSerializer):
     # visitor_type_display = serializers.SerializerMethodField()
     visitor_type = serializers.ChoiceField(
         choices=Visitor.VISITOR_TYPE_CHOICES,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
         error_messages={
             'invalid_choice': 'Invalid visitor type. Must be one of: employe, contractor, guest, or vendor.'
         }
@@ -54,33 +57,6 @@ class VisitorSerializer(serializers.ModelSerializer):
         if Visitor.all_objects.filter(phone_number=value, is_deleted=False).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError("A visitor with this phone number already exists.")
         return value
-    
-    # def validate_photo(self, image):
-    #     if not image:
-    #         raise serializers.ValidationError("Photo is required.")
-
-    #     import cv2
-    #     import numpy as np
-
-    #     file_bytes = np.asarray(bytearray(image.read()), dtype=np.uint8)
-    #     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    #     if img is None:
-    #         raise serializers.ValidationError("Invalid image format.")
-
-    #     # Convert to RGB
-    #     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    #     results = face_detector_instance.detect(img_rgb)
-
-    #     if not results.detections:
-    #         raise serializers.ValidationError("No human face detected. Please upload a front-view human image.")
-    #     if len(results.detections) > 1:
-    #         raise serializers.ValidationError("Multiple faces detected. Please upload a clear front-view image with only one person.")
-
-
-    #     # Reset pointer so Django can save the image
-    #     image.seek(0)
-
-    #     return image
 
     def validate_photo(self, image):
         if not image:
@@ -198,10 +174,5 @@ class VisitorEventHistorySerializer(serializers.ModelSerializer):
             'visitors', 
         ]
 
-    # def get_camera(self, obj):
-    #     return {
-    #         'camera_id': obj.camera_id,
-    #         'location': obj.camera_location
-    #     }
     def get_detect_id(self, obj):
         return f"detect-{obj.id}"

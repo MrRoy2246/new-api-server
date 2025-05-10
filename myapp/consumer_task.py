@@ -16,6 +16,8 @@ import asyncio
 import logging
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from .models import Visitor,VisitorEventHistory
+from django.utils import timezone
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -29,8 +31,18 @@ def process_frame_task(bytes_data, group_name, camera_id, timestamp):
 
 
         frame = bytes_data
-        original_frame = bytes_data
+        print(f"this is test frame --------{frame}")
         timestamp = int(timestamp)
+        detected_time = timezone.now()
+        event = VisitorEventHistory.objects.create(
+                visitor_ids=[],  # Temp empty; will update later
+                camera_id=camera_id,
+                snapshot_url="https://default.snapshot",
+                capture_time=timestamp,
+                detected_time=detected_time,
+            )
+        # event.visitors.set(visitors)
+
 
     except Exception as e:
         logging.error(f"Error in process_frame_task: {str(e)}")
