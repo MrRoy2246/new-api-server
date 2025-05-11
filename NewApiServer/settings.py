@@ -17,6 +17,22 @@ DEBUG = True
 ALLOWED_HOSTS = []
 # Application definition
 
+# accceleye setting-------->
+
+# Fetch ALLOWED_HOSTS from environment variable or default to '*'
+allowed_hosts_env = os.getenv('ALLOWED_HOSTS')
+ALLOWED_HOSTS = allowed_hosts_env.split(',') if allowed_hosts_env else ['*']
+
+# Fetch CORS_ALLOW_ALL_ORIGINS from environment variable or default to True
+cors_allow_all_origins_env = os.getenv('CORS_ALLOW_ALL_ORIGINS')
+CORS_ALLOW_ALL_ORIGINS = True if cors_allow_all_origins_env is None else cors_allow_all_origins_env == 'True'
+
+# Fetch CSRF_TRUSTED_ORIGINS from environment variable or default to allowing all domains
+csrf_trusted_origins_env = os.getenv('CSRF_TRUSTED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = csrf_trusted_origins_env.split(',') if csrf_trusted_origins_env else ['http://*', 'https://*']
+
+print(f"Allowed hosts: {ALLOWED_HOSTS} and CSRF origins: {CSRF_TRUSTED_ORIGINS}")
+
 INSTALLED_APPS = [
     'storages',
     'django.contrib.admin',
@@ -76,7 +92,46 @@ CHANNEL_LAYERS = {
 }
 
 
+# CHANNEL_LAYERS = {
+#     'default': {
+#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
+#         'CONFIG': {
+#             "hosts": [('redis', 6379)],
+#             'capacity': 15000,
+#             'expiry': 100,
+#             'group_expiry': 86400, 
+#         },
+#     },
+# }
 
+CELERY_BROKER_URL = 'redis://redis:6379/0'
+CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+CELERY_TASK_ACKS_LATE = True  # Allow workers to prefetch tasks
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduce prefetching to avoid queue starvation
+CELERY_TASK_TRACK_STARTED = True  # Track task start time for monitoring
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'visibility_timeout': 3600,  # 1 hour for long-running tasks
+    'fanout_prefix': True,  # Optimize Redis pub/sub
+    'fanout_patterns': True,
+}
+CELERY_RESULT_EXTENDED = True
+
+# CELERY_BEAT_SCHEDULE = {
+#     'cleanup-task': {
+#         'task': 'camera.tasks.cleanup_no_weapon_images',
+#         'schedule': 60.0, 
+#         'options': {'queue': 'celery_beat'},
+#     },
+# }
+
+MAX_MESSAGE_LENGTH = 200 * 1024 * 1024
+ASGI_THREADS = 100
 
 
 

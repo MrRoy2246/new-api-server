@@ -57,7 +57,7 @@ class Visitor(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)  
     updated_at = models.DateTimeField(auto_now=True) 
     # ml attribute to store mlserver response in our databse------------
-    # ml_attributes = JSONField(null=True, blank=True)
+    ml_attributes = JSONField(null=True, blank=True)
     objects = VisitorManager()
     all_objects = models.Manager()
     def __str__(self):

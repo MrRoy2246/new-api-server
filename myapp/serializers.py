@@ -38,6 +38,7 @@ class VisitorSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'face_detect',
+            'ml_attributes',  # ✅ ADD THIS
         ]
         read_only_fields = ['uid', 'created_at', 'updated_at']
     # def get_visitor_type_display(self, obj):
@@ -106,7 +107,7 @@ class VisitorSerializer(serializers.ModelSerializer):
         # Reject side-views (yaw)
         eye_center_x = (left_eye.x + right_eye.x) / 2.0
         nose_center_offset = abs(nose_tip.x - eye_center_x)
-        print(f"this is nose center offset{nose_center_offset}")
+        # print(f"this is nose center offset{nose_center_offset}")
         if nose_center_offset > 0.02:
             raise serializers.ValidationError("Face is turned sideways. Please face the camera.")
         # Reject looking up/down (pitch)
@@ -116,7 +117,7 @@ class VisitorSerializer(serializers.ModelSerializer):
         nose_to_mouth = mouth.y - nose_tip.y
         # Ratio check for up/down pose
         ratio = eye_to_nose / (nose_to_mouth + 1e-6)  # avoid zero division
-        print(f"ratio is {ratio}")
+        # print(f"ratio is {ratio}")
         if ratio < 0.75:
             raise serializers.ValidationError("Looking up. Please face the camera.")
         elif ratio > 1.9:

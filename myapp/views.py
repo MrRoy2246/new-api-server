@@ -126,39 +126,31 @@ class VisitorAPIView(VisitorBaseView):
             if file_key:
                 visitor.photo.name = file_key
                 visitor.save()
-
-
             # send ml server to store the ml response-------------
-
-            # ml_response= self.send_to_ml_server(visitor)
-            # if ml_response and 'ml_attributes' in ml_response:
-            #     visitor.ml_attributes = ml_response['ml_attributes']
-            #     visitor.save()
-
-
+            ml_response= self.send_to_ml_server(visitor)
+            print(f"this is ml server response={ml_response}")
+            if isinstance(ml_response, dict) and 'ml_attributes' in ml_response:
+                attribute_values = list(ml_response['ml_attributes'].values())
+                visitor.ml_attributes = attribute_values
+                visitor.save()
+                print("Stored ml_attributes in DB:", visitor.ml_attributes)
             return Response(VisitorSerializer(visitor).data, status=201)
-
         return Response(serializer.errors, status=400)
-    
-    
-    
-    # def send_to_ml_server(self,visitor):
-    #     photo_url= visitor.photo.url
-    #     photo_data= requests.get(photo_url).content
-    #     try:
-    #         response= requests.post("http://mlserverurl",
-    #                                 files={'frame':photo_data},
-    #                                 data={'visitor_id':visitor.id})
-    #         if response.status_code==200:
-    #             return response.json()
-    #         else:
-    #             return None
-    #     except Exception as e:
-    #         print(f"Error Sending to Ml server: {e}")
-    #         return None
-
-
-
+    def send_to_ml_server(self,visitor):
+        photo_url= visitor.photo.url
+        photo_data= requests.get(photo_url).content
+        try:
+            response= requests.post("http://localhost:8000/api/mock-ml/",
+                                    files={'frame':photo_data},
+                                    # data={'visitor_id':visitor.id}
+                                    )
+            if response.status_code==200:
+                return response.json()
+            else:
+                return None
+        except Exception as e:
+            print(f"Error Sending to Ml server: {e}")
+            return None
 
 
     def put(self, request, pk):
@@ -196,6 +188,53 @@ class RestoreVisitorAPIView(VisitorBaseView):
             return Response({'error': 'Visitor not found or not deleted'}, status=404)
         visitor.restore()
         return Response({'message': 'Visitor restored successfully'}, status=200)
+    
+
+import random
+class MockMLServerView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    ATTRIBUTE_LIST = [
+        'wearing_hat',
+        'wearing_glasses',
+        'long_hair',
+        'wearing_jacket',
+        'carrying_bag'
+    ]
+
+    def post(self, request):
+        photo = request.FILES.get('frame')
+        if not photo:
+            return Response({'error': 'No image provided'}, status=400)
+
+        # Generate binary values for each attribute
+        attribute_result = {attr: random.randint(0, 1) for attr in self.ATTRIBUTE_LIST}
+
+        return Response({
+            "ml_attributes": attribute_result
+        }, status=200)
+class ToggleTrackingAPIView(VisitorBaseView):
+    def post(self, request, pk):
+        try:
+            visitor = Visitor.all_objects.get(pk=pk)
+        except Visitor.DoesNotExist:
+            return Response({'error': 'Visitor not found'}, status=404)
+
+        new_status = request.data.get("is_tracking_enabled")
+        if new_status is None:
+            return Response({'error': 'Missing is_tracking_enabled field in request body.'}, status=400)
+
+        if not isinstance(new_status, bool):
+            return Response({'error': 'is_tracking_enabled must be a boolean.'}, status=400)
+
+        visitor.is_tracking_enabled = new_status
+        visitor.save()
+        return Response({
+            'message': f"Tracking status set to {new_status} for visitor {visitor.first_name} and id is {visitor.id}",
+            'is_tracking_enabled': visitor.is_tracking_enabled
+        }, status=200)
+
+
 
 
 

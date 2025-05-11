@@ -6,7 +6,7 @@ from django.urls import path
 # # VisitorListCreateAPIView, VisitorDetailAPIView,VisitorActiveAPIView,SoftDeleteVisitorListAPIView,SoftDeleteVisitorDetailAPIView,TrackedVisitorDetailAPIView,TrackedVisitorAPIView,UntrackedVisitorAPIView,UntrackedVisitorDetailAPIView,PermanentDeleteVisitorAPIView,VisitorTrackAPIView
 
 
-from .views import VisitorAPIView, RestoreVisitorAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorReportAPIView
+from .views import VisitorAPIView, RestoreVisitorAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorReportAPIView,MockMLServerView,ToggleTrackingAPIView
 
 urlpatterns = [
     # path('gateway/', VisitorTrackingAPIView.as_view(),name='visitor_tracking'),
@@ -33,6 +33,9 @@ urlpatterns = [
     # path('visitor/report/', VisitorReportAPIView.as_view(), name='visitor-report'),
 
     path('api/visitor-reports/', VisitorReportAPIView.as_view(), name='visitor-reports'),
+    path('mock-ml/', MockMLServerView.as_view(), name='mock_ml_server'),
+
+    path('visitors/toggle-tracking/<str:pk>/', ToggleTrackingAPIView.as_view(), name='toggle-tracking'),
 
     
 
