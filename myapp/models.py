@@ -87,10 +87,33 @@ class VisitorEventHistory(models.Model):
     video_process_server_ip = models.CharField(max_length=100,null=True, blank=True)
     def __str__(self):
         return f"Event at {self.camera_location} on {self.capture_time}"
-logger = logging.getLogger(__name__)
-import jwt
-import requests
-from myapp.utils import get_request_token
+    
+
+# camera Model------->
+    
+
+class Camera(models.Model):
+    camera_id = models.CharField(max_length=100, unique=True)
+    url = models.TextField()
+    location_name = models.CharField(max_length=255)
+    institute = models.IntegerField()
+    latitude = models.CharField(max_length=50)
+    longitude = models.CharField(max_length=50)
+    camera_running_status = models.BooleanField(default=False)
+    camera_frame_cap_status = models.BooleanField(default=False)
+    video_process_server = models.IntegerField(null=True, blank=True)
+    camera_type = models.CharField(max_length=50)
+    camera_model = models.CharField(max_length=255, blank=True)
+    camera_manufacture = models.CharField(max_length=255, blank=True)
+    threshold = models.CharField(max_length=10)
+    third_party = models.IntegerField(null=True, blank=True)
+    video_process_server_info = models.JSONField(null=True, blank=True)
+    third_party_info = models.JSONField(null=True, blank=True)
+
+    def __str__(self):
+        return self.camera_id
+
+
 
 
 # @receiver(post_save, sender=VisitorEventHistory)
@@ -175,7 +198,10 @@ from myapp.utils import get_request_token
 
 # # -----
 
-
+logger = logging.getLogger(__name__)
+import jwt
+import requests
+from myapp.utils import get_request_token
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 @receiver(m2m_changed, sender=VisitorEventHistory.visitors.through)
@@ -183,34 +209,25 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
     if action != 'post_add':
         return
     try:
-        token = get_request_token()
-        if not token:
-            logger.warning("⚠️ Token not found on instance")
-            return
-        camera_id = instance.camera_id
-        decoded_token = jwt.decode(token, options={"verify_signature": False})
-        institute_id = decoded_token.get("institute")
-        if not institute_id:
-            logger.warning("❌ Token does not contain institute info")
+        print("this is receiver model running")
+        
+        if not instance.camera_id:
             instance.delete()
-            return send_ws_error("Invalid token: missing institute info", camera_id)
-        valid = is_camera_valid_for_institute(camera_id, institute_id, token)
-        if not valid:
+            return send_ws_error("Camera ID missing from VisitorEventHistory instance", "unknown")
+
+        try:
+            camera = Camera.objects.get(camera_id=instance.camera_id)
+        except Camera.DoesNotExist:
             instance.delete()
-            return send_ws_error("Camera does not exist in your institute", camera_id)
-        camera_info = get_camera_info(camera_id, token)
-        if not camera_info:
-            instance.delete()
-            return send_ws_error("Unable to fetch camera metadata", camera_id)
-        instance.camera_location = camera_info.get("location_name")
-        instance.latitude = camera_info.get("latitude")
-        instance.longitude = camera_info.get("longitude")
-        # instance.snapshot_url = camera_info.get("snapshot_url", "https://default.snapshot")
-        instance.institute = camera_info.get("institute")
-        instance.camera_model = camera_info.get("camera_model")
-        instance.video_process_server_id = camera_info.get("video_process_server_id")
-        instance.video_process_server_fixed_id = camera_info.get("video_process_server_fixed_id")
-        instance.video_process_server_ip = camera_info.get("video_process_server_ip")
+            return send_ws_error("Camera not found in local database", instance.camera_id)
+        instance.camera_location = camera.location_name
+        instance.latitude = camera.latitude
+        instance.longitude = camera.longitude
+        instance.institute = camera.institute
+        instance.camera_model = camera.camera_model
+        instance.video_process_server_id = (camera.video_process_server_info or {}).get("video_process_server_id")
+        instance.video_process_server_fixed_id = (camera.video_process_server_info or {}).get("video_process_server_fixed_id")
+        instance.video_process_server_ip = (camera.video_process_server_info or {}).get("ip_address")
         instance.visitor_ids = [str(visitor.id) for visitor in instance.visitors.all()]
         instance.save(update_fields=[
             "camera_location", "latitude", "longitude", "snapshot_url",
@@ -218,22 +235,16 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
             "video_process_server_fixed_id", "video_process_server_ip",
             "visitor_ids"
         ])
-        # Try to parse capture_time for the WebSocket message
-        try:
-            capture_dt = datetime.fromisoformat(instance.capture_time.replace('Z', '+00:00'))
-            capture_time_iso = capture_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
-        except ValueError:
-            capture_time_iso = instance.capture_time  # Fallback to raw string
         photo_urls = [v.photo.url for v in instance.visitors.all() if v.photo]
         message = {
             "event": "visitor_detected",
-            "camera_id": camera_id,
+            "camera_id": instance.camera_id,
             "location": instance.camera_location,
             "latitude": instance.latitude,
             "longitude": instance.longitude,
             "visitor_ids": instance.visitor_ids,
             "detected_time": instance.detected_time.isoformat(),
-            "capture_time": capture_time_iso, # It's now a string
+            "capture_time": instance.capture_time, # It's now a string
             "snapshot_url": photo_urls,
         }
         group_name = "visitor_events"
@@ -245,9 +256,10 @@ def visitors_m2m_changed(sender, instance, action, **kwargs):
                 "message": message,
             }
         )
-        logger.info(f"✅ WebSocket event sent for camera {camera_id}")
+        logger.info(f"✅ WebSocket event sent for camera {instance.camera_id}")
     except Exception as e:
         logger.error(f"❌ visitors_m2m_changed failed: {e}")
+
 
 def send_ws_error(error_message, camera_id):
     """Send error message via WebSocket"""
@@ -265,59 +277,63 @@ def send_ws_error(error_message, camera_id):
             "message": message,
         }
     )
-def decode_token_institute(token):
-    try:
-        decoded = jwt.decode(token, options={"verify_signature": False})
-        return decoded.get("institute")
-    except Exception as e:
-        logger.error(f"Token decode error: {e}")
-        return None
-# Validate if camera exists for institute
-def is_camera_valid_for_institute(camera_id, institute_id, token):
-    try:
-        url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/?institute={institute_id}"
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            camera_list = response.json()
-            return any(str(cam.get("id")) == str(camera_id) for cam in camera_list)
-        elif response.status_code in (401, 403):
-            logger.error(f"🔒 Token error: {response.status_code}")
-            raise PermissionError("Token is invalid or expired")
-        logger.error(f"⚠️ Unexpected error validating camera list: {response.status_code}")
-        return False
-    except PermissionError:
-        raise  # Let caller handle token error specifically
-    except Exception as e:
-        logger.error(f"❌ Exception in camera validation: {e}")
-        return False
-# Get full camera info
-def get_camera_info(camera_id, token):
-    try:
-        url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/{camera_id}/"
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'latitude': data.get('latitude'),
-                'longitude': data.get('longitude'),
-                'location_name': data.get('location_name'),
-                # 'snapshot_url': data.get('url'),
-                'institute': data.get('institute'),
-                'camera_model': data.get('camera_model'),
-                'video_process_server_id': data.get('video_process_server_info', {}).get('video_process_server_id'),
-                'video_process_server_fixed_id': data.get('video_process_server_info', {}).get('video_process_server_fixed_id'),
-                'video_process_server_ip': data.get('video_process_server_info', {}).get('ip_address'),
-            }
-        logger.error(f"Camera API response error: {response.status_code}")
-        return None
-    except Exception as e:
-        logger.error(f"Camera API call failed: {e}")
-        return None
+
+
+
+
+# def decode_token_institute(token):
+#     try:
+#         decoded = jwt.decode(token, options={"verify_signature": False})
+#         return decoded.get("institute")
+#     except Exception as e:
+#         logger.error(f"Token decode error: {e}")
+#         return None
+# # Validate if camera exists for institute
+# def is_camera_valid_for_institute(camera_id, institute_id, token):
+#     try:
+#         url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/?institute={institute_id}"
+#         headers = {
+#             'Authorization': f'Bearer {token}',
+#             'Content-Type': 'application/json'
+#         }
+#         response = requests.get(url, headers=headers)
+#         if response.status_code == 200:
+#             camera_list = response.json()
+#             return any(str(cam.get("id")) == str(camera_id) for cam in camera_list)
+#         elif response.status_code in (401, 403):
+#             logger.error(f"🔒 Token error: {response.status_code}")
+#             raise PermissionError("Token is invalid or expired")
+#         logger.error(f"⚠️ Unexpected error validating camera list: {response.status_code}")
+#         return False
+#     except PermissionError:
+#         raise  # Let caller handle token error specifically
+#     except Exception as e:
+#         logger.error(f"❌ Exception in camera validation: {e}")
+#         return False
+# # Get full camera info
+# def get_camera_info(camera_id, token):
+#     try:
+#         url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/{camera_id}/"
+#         headers = {
+#             'Authorization': f'Bearer {token}',
+#             'Content-Type': 'application/json'
+#         }
+#         response = requests.get(url, headers=headers)
+#         if response.status_code == 200:
+#             data = response.json()
+#             return {
+#                 'latitude': data.get('latitude'),
+#                 'longitude': data.get('longitude'),
+#                 'location_name': data.get('location_name'),
+#                 # 'snapshot_url': data.get('url'),
+#                 'institute': data.get('institute'),
+#                 'camera_model': data.get('camera_model'),
+#                 'video_process_server_id': data.get('video_process_server_info', {}).get('video_process_server_id'),
+#                 'video_process_server_fixed_id': data.get('video_process_server_info', {}).get('video_process_server_fixed_id'),
+#                 'video_process_server_ip': data.get('video_process_server_info', {}).get('ip_address'),
+#             }
+#         logger.error(f"Camera API response error: {response.status_code}")
+#         return None
+#     except Exception as e:
+#         logger.error(f"Camera API call failed: {e}")
+#         return None

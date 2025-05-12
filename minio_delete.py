@@ -5,7 +5,7 @@ import datetime
 # Initialize MinIO client
 client = Minio(
     "192.168.1.150:9000",  # MinIO server endpoint (adjust to your server)
-    access_key="admin",
+    access_key="acceleye_api",
     secret_key="Accelx@123456",
     secure=False  # Set to True if you're using HTTPS
 )

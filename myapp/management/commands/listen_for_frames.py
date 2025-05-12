@@ -7,6 +7,7 @@ from myapp.utils import camera_redis, get_latest_camera_frame
 from myapp.consumer_task import process_frame_task
 import os
 import logging
+from asgiref.sync import sync_to_async
 from dotenv import load_dotenv
 load_dotenv(dotenv_path = r'C:\ABIN-Work\NewApiServer\NewApiServer\.env')
 
@@ -37,7 +38,7 @@ class Command(BaseCommand):
                     )
                 )
                 # Offload frame processing to Celery
-                process_frame_task(frame_info['frame'], channel_name, camera_id, frame_info['timestamp'])
+                await sync_to_async (process_frame_task)(frame_info['frame'], channel_name, camera_id, frame_info['timestamp'])
                 logger.info(
                     f"Frame dispatched to Celery for camera {camera_id} on channel {channel_name}, "
                     f"processing time: {asyncio.get_event_loop().time() - start_time:.2f}s"

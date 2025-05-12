@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 # Create your views here.
-from .models import Visitor,VisitorEventHistory
+from .models import Visitor,VisitorEventHistory,Camera
 from .serializers import VisitorSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
@@ -39,6 +39,12 @@ class VisitorBaseView(APIView):
         try:
             decoded = jwt.decode(token,options={"verify_signature": False})
             return decoded.get("role")
+        except jwt.DecodeError:
+            return None
+    def get_institute_from_token(self, token):
+        try:
+            decoded = jwt.decode(token,options={"verify_signature": False})
+            return decoded.get("institute")
         except jwt.DecodeError:
             return None
 class VisitorAPIView(VisitorBaseView):
@@ -141,7 +147,8 @@ class VisitorAPIView(VisitorBaseView):
         photo_data= requests.get(photo_url).content
         try:
             response= requests.post("http://localhost:8000/api/mock-ml/",
-                                    files={'frame':photo_data},
+                                    # files={'frame':photo_data},
+                                    files={'frame': ('photo.jpg', photo_data, 'image/jpeg')},
                                     # data={'visitor_id':visitor.id}
                                     )
             if response.status_code==200:
@@ -181,7 +188,6 @@ class VisitorAPIView(VisitorBaseView):
         return Response({'message': 'Visitor soft deleteded successfully.'}, status=200)
 class RestoreVisitorAPIView(VisitorBaseView):
     def post(self, request, pk):
-        Response({'error': 'You are not allowed to restore visitors.'}, status=403)
         try:
             visitor = Visitor.all_objects.get(pk=pk, is_deleted=True)
         except Visitor.DoesNotExist:
@@ -233,6 +239,56 @@ class ToggleTrackingAPIView(VisitorBaseView):
             'message': f"Tracking status set to {new_status} for visitor {visitor.first_name} and id is {visitor.id}",
             'is_tracking_enabled': visitor.is_tracking_enabled
         }, status=200)
+
+
+# store camera
+    
+class CameraUpdateView(VisitorBaseView):
+    def get(self, request, *args, **kwargs):
+        # Make an API call to the external service to get the camera data
+        token = self.get_token_from_header(request)
+        # print(f"this is token test->{token}")
+        if not token or not self.is_token_valid(token):
+            return Response({'error': 'Invalid or missing token'}, status=403)
+        institute=self.get_institute_from_token(token)
+        if not institute:
+            return Response({'error': 'No institute in token'}, status=404)
+        external_api_url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/?institute={institute}"
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        response = requests.get(external_api_url, headers=headers)
+        
+        if response.status_code == 200:
+            camera_data = response.json()  # Assuming the response is in JSON format
+            for data in camera_data:
+                # Extract each camera's information from the response
+                camera_id = data['id']  # Unique camera identifier
+                # Use `update_or_create` to update or create the camera record in your database
+                Camera.objects.update_or_create(
+                    camera_id=camera_id,  # Use `camera_id` as the unique identifier
+                    defaults={  # The `defaults` dictionary will contain all other fields
+                        'url': data.get('url', ''),
+                        'location_name': data.get('location_name', ''),
+                        'institute': data.get('institute', None),
+                        'latitude': data.get('latitude', ''),
+                        'longitude': data.get('longitude', ''),
+                        'camera_running_status': data.get('camera_running_status', False),
+                        'camera_frame_cap_status': data.get('camera_frame_cap_status', False),
+                        'video_process_server': data.get('video_process_server', None),
+                        'camera_type': data.get('camera_type', ''),
+                        'camera_model': data.get('camera_model', ''),
+                        'camera_manufacture': data.get('camera_manufacture', ''),
+                        'threshold': data.get('threshold', ''),
+                        'third_party': data.get('third_party', None),
+                        'video_process_server_info': data.get('video_process_server_info', {}),
+                        'third_party_info': data.get('third_party_info', {}),
+                    }
+                )
+            return Response({"message": "Camera data updated successfully."}, status=200)
+        return Response({"message": "Failed to fetch camera data."}, status=400)
+
 
 
 
