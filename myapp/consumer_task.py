@@ -61,11 +61,12 @@ def process_frame_task(bytes_data, group_name, camera_id, timestamp):
             logger.error(f"❌ ML server error: {response.status_code} - {response.text}")
             return
         ml_response = response.json()
-        print(f"this is automatic ml response{ml_response}")
+        
         logger.info(f"🧠 ML Response: {ml_response}")
         # detected_embeddings = ml_response.get("ml_attributes", [])
         attribute_dict = ml_response.get("ml_attributes", {})
         detected_embeddings = list(attribute_dict.values())
+        logger.info(f"This is detected embeddings {detected_embeddings}")
         if not detected_embeddings:
             logger.info("🛑 No embeddings returned by ML.")
             return
@@ -112,6 +113,7 @@ def process_frame_task(bytes_data, group_name, camera_id, timestamp):
                 detected_time=detected_time,
             )
         event.visitors.set(matched_visitors)
+        # caile ekhane event delete korar kono logic add korte pari....
         logger.info(f"✅ Created event for matched visitors: {[v.id for v in matched_visitors]}")
     except Exception as e:
         logging.error(f"Error in process_frame_task: {str(e)}")
@@ -119,6 +121,7 @@ def process_frame_task(bytes_data, group_name, camera_id, timestamp):
         group_name = "visitor_events"
         channel_layer = get_channel_layer()
         asyncio.run(channel_layer.group_send(
+        # async_to_sync(channel_layer.group_send(
             group_name,
             {
                 'type': 'notification.message',

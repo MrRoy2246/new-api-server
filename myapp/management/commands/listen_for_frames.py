@@ -10,26 +10,20 @@ import logging
 from asgiref.sync import sync_to_async
 from dotenv import load_dotenv
 load_dotenv(dotenv_path = r'C:\ABIN-Work\NewApiServer\NewApiServer\.env')
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 CHANNEL_NAMES = os.getenv("CHANNEL_NAMES","274f0909-1551-4c8e-b1cb-c08166202b08").split(",")
-
 class Command(BaseCommand):
     help = "Listen for camera frame events via Redis Pub/Sub asynchronously for multiple channels"
-
     async def process_message(self, message, channel_name):
         """Process a single Pub/Sub message in a separate task."""
         try:
             start_time = asyncio.get_event_loop().time()
             if message["type"] != "message":
                 return
-
             data = json.loads(message["data"])
             camera_id = data.get("camera_id")
             logger.info(f"Processing message for camera {camera_id} on channel {channel_name}")
-
             frame_info = await get_latest_camera_frame(camera_id)
             if frame_info:
                 self.stdout.write(
@@ -37,7 +31,6 @@ class Command(BaseCommand):
                         f"📸 Frame received — Camera {camera_id} @ {frame_info['timestamp']} on channel {channel_name}"
                     )
                 )
-                # Offload frame processing to Celery
                 await sync_to_async (process_frame_task)(frame_info['frame'], channel_name, camera_id, frame_info['timestamp'])
                 logger.info(
                     f"Frame dispatched to Celery for camera {camera_id} on channel {channel_name}, "
@@ -50,7 +43,6 @@ class Command(BaseCommand):
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"❌ Error processing frame on channel {channel_name}: {e}"))
             logger.error(f"Error processing message for camera {camera_id} on channel {channel_name}: {e}")
-
     async def listen_to_channel(self, channel_name):
         """Listen to a single Redis Pub/Sub channel."""
         while True:  # Keep trying to reconnect on failure
@@ -60,15 +52,12 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.SUCCESS(f"🔌 Subscribed to {channel_name} channel.")
                 )
-
                 async for message in pubsub.listen():
-                    # Spawn a new task for each message to process in parallel
                     asyncio.create_task(self.process_message(message, channel_name))
             except Exception as e:
                 self.stderr.write(self.style.ERROR(f"❌ Pub/Sub error on channel {channel_name}: {e}"))
                 logger.error(f"Pub/Sub error on channel {channel_name}: {e}")
                 await asyncio.sleep(5)  # Wait before retrying
-
     async def handle_async(self):
         """Async handler for multiple Redis Pub/Sub channels."""
         try:
