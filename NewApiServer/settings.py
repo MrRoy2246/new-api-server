@@ -82,45 +82,63 @@ WSGI_APPLICATION = 'NewApiServer.wsgi.application'
 ASGI_APPLICATION = 'NewApiServer.asgi.application'
 
 
-
-
-# Use in-memory channel layer for development (or Redis for production)
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',  # Use Redis backend in production
-    },
-}
-
-
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             "hosts": [('redis', 6379)],
-#             'capacity': 15000,
-#             'expiry': 100,
-#             'group_expiry': 86400, 
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
+#     'handlers': {
+#         'elasticsearch': {
+#             'level': 'INFO',
+#             'class': 'myapp.loging_config.ElasticsearchHandler',
 #         },
+#         'console': {
+#             'class': 'logging.StreamHandler',
+#         },
+#     },
+#     'root': {
+#         'handlers': ['console', 'elasticsearch'],
+#         'level': 'INFO',
 #     },
 # }
 
-CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
-CELERY_TASK_ACKS_LATE = True  # Allow workers to prefetch tasks
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduce prefetching to avoid queue starvation
-CELERY_TASK_TRACK_STARTED = True  # Track task start time for monitoring
-CELERY_BROKER_TRANSPORT_OPTIONS = {
-    'visibility_timeout': 3600,  # 1 hour for long-running tasks
-    'fanout_prefix': True,  # Optimize Redis pub/sub
-    'fanout_patterns': True,
+
+# Use in-memory channel layer for development (or Redis for production)
+# CHANNEL_LAYERS = {
+#     'default': {
+#         'BACKEND': 'channels.layers.InMemoryChannelLayer',  # Use Redis backend in production
+#     },
+# }
+
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+            # 'capacity': 15000,
+            # 'expiry': 100,
+            # 'group_expiry': 86400, 
+        },
+    },
 }
-CELERY_RESULT_EXTENDED = True
+
+# CELERY_BROKER_URL = 'redis://redis:6379/0'
+# CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+# CELERY_ACCEPT_CONTENT = ['json']
+# CELERY_TASK_SERIALIZER = 'json'
+# CELERY_RESULT_SERIALIZER = 'json'
+# CELERY_TIMEZONE = 'UTC'
+# CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# CELERY_TASK_ACKS_LATE = True  # Allow workers to prefetch tasks
+# CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduce prefetching to avoid queue starvation
+# CELERY_TASK_TRACK_STARTED = True  # Track task start time for monitoring
+# CELERY_BROKER_TRANSPORT_OPTIONS = {
+#     'visibility_timeout': 3600,  # 1 hour for long-running tasks
+#     'fanout_prefix': True,  # Optimize Redis pub/sub
+#     'fanout_patterns': True,
+# }
+# CELERY_RESULT_EXTENDED = True
 
 # CELERY_BEAT_SCHEDULE = {
 #     'cleanup-task': {
@@ -130,8 +148,8 @@ CELERY_RESULT_EXTENDED = True
 #     },
 # }
 
-MAX_MESSAGE_LENGTH = 200 * 1024 * 1024
-ASGI_THREADS = 100
+# MAX_MESSAGE_LENGTH = 200 * 1024 * 1024
+# ASGI_THREADS = 100
 
 
 

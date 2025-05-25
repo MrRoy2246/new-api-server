@@ -40,9 +40,7 @@ class VisitorSerializer(serializers.ModelSerializer):
             'face_detect',
             'ml_attributes',  # ✅ ADD THIS
         ]
-        read_only_fields = ['uid', 'created_at', 'updated_at']
-    # def get_visitor_type_display(self, obj):
-    #     return obj.get_visitor_type_display()
+        read_only_fields = ['id', 'created_at', 'updated_at']
     def create(self, validated_data):
         validated_data.pop('face_detect', None)  # Remove before saving
         return super().create(validated_data)
@@ -50,13 +48,13 @@ class VisitorSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         # Exclude self when updating
         instance = self.instance
-        if Visitor.all_objects.filter(email=value, is_deleted=False).exclude(pk=getattr(instance, 'pk', None)).exists():
+        if Visitor.all_objects.filter(email=value).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError("A visitor with this email already exists.")
         return value
     def validate_phone_number(self, value):
         # Exclude self when updating
         instance = self.instance
-        if Visitor.all_objects.filter(phone_number=value, is_deleted=False).exclude(pk=getattr(instance, 'pk', None)).exists():
+        if Visitor.all_objects.filter(phone_number=value).exclude(pk=getattr(instance, 'pk', None)).exists():
             raise serializers.ValidationError("A visitor with this phone number already exists.")
         return value
 
@@ -146,9 +144,70 @@ class VisitorWithTypeSerializer(serializers.ModelSerializer):
 
 
 
-    # for report serializer------->
+    # for report serializer when many to many------->
+
+
+
+# from rest_framework import serializers
+# from .models import Visitor, VisitorEventHistory
+
+# class VisitorBasicSerializer(serializers.ModelSerializer):
+#     name = serializers.SerializerMethodField()
+#     visitor_id = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = Visitor
+#         fields = ['visitor_id', 'name', 'email', 'visitor_type', 'company_name']
+
+#     def get_name(self, obj):
+#         return f"{obj.first_name} {obj.last_name}"
+#     def get_visitor_id(self, obj):
+#         return str(obj.id)  # return UUID as string if necessary
+
+
+# # class VisitorEventHistorySerializer(serializers.ModelSerializer):
+# #     visitors = VisitorBasicSerializer(many=True)
+# #     # camera = serializers.SerializerMethodField()
+# #     detect_id = serializers.SerializerMethodField()
+
+# #     class Meta:
+# #         model = VisitorEventHistory
+# #         fields = [
+# #             'detect_id', 'camera_id','camera_location','latitude', 'longitude', 'snapshot_url', 'capture_time', 'detected_time', 
+# #             'visitors', 
+# #         ]
+
+# #     def get_detect_id(self, obj):
+# #         return f"detect-{obj.id}"
+    
+# class VisitorEventHistorySerializer(serializers.ModelSerializer):
+#     visitors = serializers.SerializerMethodField()  # ✅ fixed
+#     detect_id = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = VisitorEventHistory
+#         fields = [
+#             'detect_id', 'camera_id', 'camera_location', 'latitude', 'longitude',
+#             'snapshot_url', 'capture_time', 'detected_time', 'visitors',
+#         ]
+
+#     def get_detect_id(self, obj):
+#         return f"detect-{obj.id}"
+
+#     def get_visitors(self, obj):
+#         visitors = Visitor.objects.filter(id__in=obj.visitor_ids)
+#         return VisitorBasicSerializer(visitors, many=True).data
+
+
+
+
+
+
+# without many to many----->
+    
+# serializers.py
 from rest_framework import serializers
-from .models import Visitor, VisitorEventHistory
+from .models import VisitorEventHistory, Visitor
 
 class VisitorBasicSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
@@ -160,21 +219,25 @@ class VisitorBasicSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
+
     def get_visitor_id(self, obj):
-        return str(obj.id)  # return UUID as string if necessary
+        return str(obj.id)
 
 
 class VisitorEventHistorySerializer(serializers.ModelSerializer):
-    visitors = VisitorBasicSerializer(many=True)
-    # camera = serializers.SerializerMethodField()
+    visitors = serializers.SerializerMethodField()
     detect_id = serializers.SerializerMethodField()
 
     class Meta:
         model = VisitorEventHistory
         fields = [
-            'detect_id', 'camera_id','camera_location','latitude', 'longitude', 'snapshot_url', 'capture_time', 'detected_time', 
-            'visitors', 
+            'detect_id', 'camera_id', 'camera_location', 'latitude', 'longitude',
+            'snapshot_url', 'capture_time', 'detected_time', 'visitors',
         ]
 
     def get_detect_id(self, obj):
         return f"detect-{obj.id}"
+
+    def get_visitors(self, obj):
+        visitors = Visitor.objects.filter(id__in=obj.visitor_ids)
+        return VisitorBasicSerializer(visitors, many=True).data

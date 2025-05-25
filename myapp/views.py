@@ -4,10 +4,8 @@ import jwt
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-# Create your views here.
 from .models import Visitor,VisitorEventHistory,Camera
 from .serializers import VisitorSerializer
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -200,12 +198,17 @@ import random
 class MockMLServerView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
-    ATTRIBUTE_LIST = [
-        'wearing_hat',
-        'wearing_glasses',
-        'long_hair',
-        'wearing_jacket',
-        'carrying_bag'
+    ATTRIBUTE_LIST =  [
+        'A pedestrian wearing a hat',
+        'A pedestrian wearing sunglasses',
+        'A pedestrian with long hair',
+        'A pedestrian in a jacket',
+        'A pedestrian in jeans',
+        'A pedestrian in sneakers',
+        'A pedestrian with a backpack',
+        'A pedestrian under the age of 30',
+        'A pedestrian over the age of 60',
+        'A male pedestrian',
     ]
 
     def post(self, request):
@@ -219,6 +222,9 @@ class MockMLServerView(APIView):
         return Response({
             "ml_attributes": attribute_result
         }, status=200)
+
+
+
 class ToggleTrackingAPIView(VisitorBaseView):
     def post(self, request, pk):
         try:
@@ -238,6 +244,38 @@ class ToggleTrackingAPIView(VisitorBaseView):
         return Response({
             'message': f"Tracking status set to {new_status} for visitor {visitor.first_name} and id is {visitor.id}",
             'is_tracking_enabled': visitor.is_tracking_enabled
+        }, status=200)
+
+
+class VisitorLastLocationAPIView(APIView):
+    def get(self, request, pk):
+        try:
+            visitor = Visitor.all_objects.get(pk=pk)
+        except Visitor.DoesNotExist:
+            return Response({"error": "Visitor not found"}, status=404)
+
+        if not visitor.is_tracking_enabled:
+            return Response({"error": "Tracking is disabled for this visitor."}, status=403)
+
+        # Get latest event history involving this visitor
+        # latest_event = VisitorEventHistory.objects.filter(
+        #     visitor_ids__contains=[visitor.id]
+        # ).order_by('-detected_time').first()
+        all_events = VisitorEventHistory.objects.order_by('-detected_time')
+        latest_event = next(
+            (event for event in all_events if str(visitor.id) in event.visitor_ids),
+            None
+        )
+
+        if not latest_event:
+            return Response({"error": "No location history found for this visitor."}, status=404)
+
+        return Response({
+            "visitor_id": visitor.id,
+            "latitude": latest_event.latitude,
+            "longitude": latest_event.longitude,
+            "detected_time": latest_event.detected_time.isoformat(),
+            "location": latest_event.camera_location
         }, status=200)
 
 
@@ -292,166 +330,7 @@ class CameraUpdateView(VisitorBaseView):
 
 
 
-
-
-# 3 function------------------------------------------>
-# import base64
-# import logging
-# import requests
-# from io import BytesIO
-# from PIL import Image
-
-# from django.utils import timezone
-# from django.core.files.uploadedfile import SimpleUploadedFile
-
-# from rest_framework.views import APIView
-# from rest_framework.response import Response
-# from rest_framework import status
-
-# from channels.layers import get_channel_layer
-# from asgiref.sync import async_to_sync
-
-# from .models import Visitor, VisitorEventHistory
-
-# logger = logging.getLogger(__name__)
-
-# class MLDetectionAPIView(APIView):
-#     def post(self, request, *args, **kwargs):
-#         try:
-#             frame = request.data.get("frame")
-#             camera_id = request.data.get("camera_id")
-#             token = request.data.get("token")
-#             capture_time_str = request.data.get("capture_time")
-
-#             if not (frame and camera_id and token and capture_time_str):
-#                 return Response({"error": "Missing frame, camera_id, token or capture_time"}, status=status.HTTP_400_BAD_REQUEST)
-
-#             capture_time = timezone.datetime.fromisoformat(capture_time_str)
-
-#             response = self.send_to_ml_server(frame, camera_id, token, capture_time)
-
-#             if response.get("status") == "success":
-#                 return Response(response, status=status.HTTP_200_OK)
-#             else:
-#                 return Response(response, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-#         except Exception as e:
-#             logger.error(f"Error in ML detection view: {e}")
-#             return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-#     def send_to_ml_server(self, frame, camera_id, token, capture_time):
-#         try:
-#             frame_data = base64.b64decode(frame)
-#             img_file = SimpleUploadedFile("frame.jpg", frame_data, content_type="image/jpeg")
-
-#             visitor_files = []
-#             visitors = Visitor.objects.filter(is_deleted=False, photo__isnull=False)
-#             for visitor in visitors:
-#                 try:
-#                     with visitor.photo.open('rb') as photo_file:
-#                         visitor_files.append(
-#                             ('visitor_images', (f"{visitor.uid}.jpg", photo_file.read(), 'image/jpeg'))
-#                         )
-#                 except Exception as e:
-#                     logger.warning(f"Error reading visitor image: {e}")
-
-#             files = [('frame', img_file)] + visitor_files
-#             response = requests.post("http://mlserver.com/detect", files=files, data={'camera_id': camera_id, 'token': token})
-
-#             if response.status_code == 200:
-#                 detection_data = response.json()
-#                 visitor_ids = detection_data.get('visitor_ids', [])
-#                 if visitor_ids:
-#                     matched_visitors = Visitor.objects.filter(uid__in=visitor_ids)
-#                     self.create_event(matched_visitors, camera_id, token, capture_time)
-#                     return {"status": "success", "message": "Visitors detected", "visitor_ids": visitor_ids}
-#                 else:
-#                     return {"status": "error", "message": "No visitors detected"}
-#             else:
-#                 return {"status": "error", "message": "ML server error"}
-#         except Exception as e:
-#             logger.error(f"Error sending to ML server: {e}")
-#             return {"status": "error", "message": "Error contacting ML server"}
-
-#     def create_event(self, visitors, camera_id, token, capture_time):
-#         try:
-#             detected_time = timezone.now()
-#             visitor_ids = [visitor.uid for visitor in visitors]
-
-#             camera_info = self.get_camera_info(camera_id, token)
-#             if not camera_info:
-#                 return
-
-#             event = VisitorEventHistory.objects.create(
-#                 visitor_ids=visitor_ids,
-#                 camera_id=camera_id,
-#                 camera_location=camera_info.get("location_name"),
-#                 latitude=camera_info.get("latitude"),
-#                 longitude=camera_info.get("longitude"),
-#                 snapshot_url=camera_info.get("snapshot_url", "https://default.snapshot"),
-#                 capture_time=capture_time,
-#                 detected_time=detected_time,
-#                 institute=camera_info.get("institute"),
-#                 camera_model=camera_info.get("camera_model"),
-#                 video_server_ip=camera_info.get("video_server_ip"),
-#                 video_server_port=camera_info.get("video_server_port"),
-#             )
-
-#             # WebSocket notification
-#             channel_layer = get_channel_layer()
-#             async_to_sync(channel_layer.group_send)(
-#                 "visitor_events",
-#                 {
-#                     "type": "event.message",
-#                     "message": {
-#                         "event": "visitor_detected",
-#                         "camera_id": event.camera_id,
-#                         "location": event.camera_location,
-#                         "visitor_ids": event.visitor_ids,
-#                         "detected_time": event.detected_time.isoformat(),
-#                         "capture_time": event.capture_time.isoformat(),
-#                         "snapshot_url": event.snapshot_url,
-#                     }
-#                 }
-#             )
-
-#             logger.info("WebSocket message sent for VisitorEventHistory")
-
-#         except Exception as e:
-#             logger.error(f"Error creating VisitorEventHistory or sending WebSocket: {e}")
-
-#     def get_camera_info(self, camera_id, token):
-#         try:
-#             camera_api_url = f"https://api.accelx.net/gd_apidev/camera/camera-setups/133/"
-#             headers = {
-#                 'Authorization': f'Bearer {token}',
-#                 'Content-Type': 'application/json'
-#             }
-
-#             response = requests.get(camera_api_url, headers=headers)
-
-#             if response.status_code == 200:
-#                 camera_data = response.json()
-#                 return {
-#                     'latitude': camera_data.get('latitude'),
-#                     'longitude': camera_data.get('longitude'),
-#                     'location_name': camera_data.get('location_name'),
-#                     'snapshot_url': camera_data.get('url'),
-#                     'institute': camera_data.get('institute'),
-#                     'camera_model': camera_data.get('model'),
-#                     'video_server_ip': camera_data.get('video_server_ip'),
-#                     'video_server_port': camera_data.get('video_server_port'),
-#                 }
-#             else:
-#                 logger.error(f"Failed to fetch camera details: {response.status_code}")
-#                 return None
-#         except requests.RequestException as e:
-#             logger.error(f"Error calling external camera API: {e}")
-#             return None
-
-
-
-# MANUAL TEST-------bellow manual test works fine but here i use visitor uid now try with id
+# MANUAL TEST-------
 
 import base64
 import logging
@@ -480,10 +359,6 @@ class MLDetectionAPIView(APIView):
             manual_visitor_ids = request.data.get("visitor_ids")  # Manual test support
             if not (camera_id and token and capture_time):
                 return Response({"error": "Missing camera_id, token, or capture_time"}, status=status.HTTP_400_BAD_REQUEST)
-            # try:
-            #     capture_time = capture_time
-            # except Exception:
-            #     return Response({"error": "Invalid capture_time format"}, status=400)
             if manual_visitor_ids:
                 visitors = Visitor.objects.filter(id__in=manual_visitor_ids)
                 if not visitors.exists():
@@ -536,193 +411,29 @@ class MLDetectionAPIView(APIView):
             capture_time = capture_time
             detected_time = timezone.now()
             snapshot_url = visitors[0].photo.url if visitors and visitors[0].photo else "https://default.snapshot"
-
+            visitor_ids = [visitor.id for visitor in visitors]
             logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}")
             event = VisitorEventHistory.objects.create(
-                visitor_ids=[],  # Temp empty; will update later
+                visitor_ids=visitor_ids,  # Temp empty; will update later
                 camera_id=camera_id,
                 snapshot_url=snapshot_url,
                 capture_time=capture_time,
                 detected_time=detected_time,
             )
-            event.visitors.set(visitors)  # This triggers m2m_changed
+            # event.visitors.set(visitors)  # This triggers m2m_changed
         except Exception as e:
             logger.error(f"Error creating event or WebSocket send: {e}")
         finally:
             clear_request_token()
 
-# # Manual test try with visitor id------->>>>>   
-# import base64
-# import logging
-# import requests
-# from io import BytesIO
-# from PIL import Image
-# from django.utils import timezone
-# from django.core.files.uploadedfile import SimpleUploadedFile
-# from rest_framework.views import APIView
-# from rest_framework.response import Response
-# from rest_framework import status
-# from channels.layers import get_channel_layer
-# from asgiref.sync import async_to_sync
-# from myapp.utils import set_request_token, clear_request_token
-# from .models import Visitor, VisitorEventHistory
-# logger = logging.getLogger(__name__)
-
-# class MLDetectionAPIView(APIView):
-#     def post(self, request, *args, **kwargs):
-#         try:
-#             frame = request.data.get("frame")
-#             camera_id = request.data.get("camera_id")
-#             token = request.headers.get("Authorization")
-#             if token and token.startswith("Bearer "):
-#                 token = token[len("Bearer "):]
-#             capture_time_str = request.data.get("capture_time")
-#             manual_visitor_ids = request.data.get("visitor_ids")  # Manual test support
-
-#             if not (camera_id and token and capture_time_str):
-#                 return Response({"error": "Missing camera_id, token, or capture_time"}, status=status.HTTP_400_BAD_REQUEST)
-
-#             # Convert capture_time
-#             try:
-#                 capture_time = timezone.datetime.fromisoformat(capture_time_str)
-#             except Exception:
-#                 return Response({"error": "Invalid capture_time format"}, status=400)
-
-#             # ✅ Manual test path (ML server bypass)
-#             if manual_visitor_ids:
-#                 visitors = Visitor.objects.filter(id__in=manual_visitor_ids)
-#                 if not visitors.exists():
-#                     return Response({"error": "No valid visitors found"}, status=404)
-
-#                 try:
-#                     self.create_event(visitors, camera_id, token, capture_time)
-#                     return Response({
-#                         "status": "success",
-#                         "message": "Manual test: event created",
-#                         "visitor_ids": manual_visitor_ids
-#                     }, status=200)
-#                 except Exception as e:
-#                     return Response({"error": str(e)}, status=400)
-
-#             # ✅ ML server flow
-#             if not frame:
-#                 return Response({"error": "Missing frame for ML processing"}, status=400)
-
-#             return Response(self.send_to_ml_server(frame, camera_id, token, capture_time))
-
-#         except Exception as e:
-#             logger.error(f"Error in ML detection view: {e}")
-#             return Response({"error": "Internal server error"}, status=500)
-
-#     def send_to_ml_server(self, frame, camera_id, token, capture_time):
-#         try:
-#             frame_data = base64.b64decode(frame)
-#             img_file = SimpleUploadedFile("frame.jpg", frame_data, content_type="image/jpeg")
-
-#             # Send visitor images to ML server
-#             visitor_files = []
-#             for visitor in Visitor.objects.filter(is_deleted=False, photo__isnull=False):
-#                 try:
-#                     with visitor.photo.open('rb') as photo_file:
-#                         visitor_files.append(
-#                             ('visitor_images', (f"{visitor.id}.jpg", photo_file.read(), 'image/jpeg'))
-#                         )
-#                 except Exception as e:
-#                     logger.warning(f"Error reading visitor image: {e}")
-
-#             files = [('frame', img_file)] + visitor_files
-#             response = requests.post("http://mlserver.com/detect", files=files, data={'camera_id': camera_id, 'token': token})
-
-#             if response.status_code == 200:
-#                 detection_data = response.json()
-#                 visitor_ids = detection_data.get('visitor_ids', [])
-#                 if visitor_ids:
-#                     visitors = Visitor.objects.filter(id__in=visitor_ids)
-#                     self.create_event(visitors, camera_id, token, capture_time)
-#                     return {"status": "success", "visitor_ids": visitor_ids}
-#                 return {"status": "error", "message": "No visitors detected"}
-#             return {"status": "error", "message": "ML server error"}
-#         except Exception as e:
-#             logger.error(f"ML server communication error: {e}")
-#             return {"status": "error", "message": "Error contacting ML server"}
-
-#     def create_event(self, visitors, camera_id, token, capture_time):
-#         try:
-#             set_request_token(token)
-#             detected_time = timezone.now()
-#             visitor_ids = [str(visitor.id) for visitor in visitors]  # ✅ Use default primary key
-
-#             logger.info(f"➡️ Creating VisitorEventHistory for camera {camera_id}, visitors {visitor_ids}")
-
-#             event = VisitorEventHistory.objects.create(
-#                 visitor_ids=visitor_ids,
-#                 camera_id=camera_id,
-#                 snapshot_url="https://default.snapshot",
-#                 capture_time=capture_time,
-#                 detected_time=detected_time,
-#             )
-#         except Exception as e:
-#             logger.error(f"Error creating event or WebSocket send: {e}")
-#         finally:
-#             clear_request_token()  # ✅ Always clear
-
-
-
-# ------------------------------Camera Detection Detail for visitor 
-            
-
-# import base64
-# import requests
-# from rest_framework.views import APIView
-# from rest_framework.response import Response
-# from rest_framework import status
-# from .models import Visitor, VisitorEventHistory
-
-# class VisitorDetectionsAPIView(APIView):
-#     def get(self, request, visitor_id):
-#         try:
-#             visitor = Visitor.objects.filter(id=visitor_id, is_deleted=False).first()
-#             if not visitor:
-#                 return Response({"error": "Visitor not found"}, status=status.HTTP_404_NOT_FOUND)
-
-#             # ✅ Search for detections containing the visitor's UID in the JSONField
-#             detections = VisitorEventHistory.objects.filter(visitor_ids__contains=[str(visitor.uid)]).order_by('-detected_time')
-
-#             if not detections.exists():
-#                 return Response([], status=status.HTTP_404_NOT_FOUND)
-
-#             response_data = []
-#             for detection in detections:
-#                 image_base64 = ""
-#                 try:
-#                     img_response = requests.get(detection.snapshot_url)
-#                     if img_response.status_code == 200:
-#                         encoded = base64.b64encode(img_response.content).decode('utf-8')
-#                         image_base64 = f"data:image/jpeg;base64,{encoded}"
-#                 except Exception:
-#                     pass  # If image fetch fails, leave it blank
-
-#                 response_data.append({
-#                     "detection_id": f"detect-{detection.id}",
-#                     "cam_id": detection.camera_id,
-#                     "location": detection.camera_location,
-#                     "lat": detection.latitude,
-#                     "long": detection.longitude,
-#                     "detected_time": detection.detected_time.isoformat(),
-#                     "exit_time": None,  # Optional: update if available
-#                     "image": image_base64,
-#                 })
-
-#             return Response(response_data, status=status.HTTP_200_OK)
-
-#         except Exception as e:
-#             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-
-# -------------------------------------------------
-
-
+class VisitorEventDeleteAPIView(APIView):
+    def delete(self, request, pk, *args, **kwargs):
+        try:
+            event = VisitorEventHistory.objects.get(pk=pk)
+            event.delete()
+            return Response({"message": "Event deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+        except VisitorEventHistory.DoesNotExist:
+            return Response({"error": "Event not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 # visitor ditection camera detail with token auth    
@@ -774,7 +485,8 @@ class VisitorDetectionsView(APIView):
             data = []
             for d in detections:
                 image_base64 = get_base64_from_url(d.snapshot_url)
-                visitor_first_names = [v.first_name for v in d.visitors.all()]
+                # visitor_first_names = [v.first_name for v in d.visitors.all()]    #many to many field er jonno
+                visitor_first_names = [v.first_name for v in Visitor.objects.filter(id__in=d.visitor_ids)]
                 data.append({
                     "detection_id": f"detect-{d.id}",
                     "cam_id": d.camera_id,
@@ -793,29 +505,130 @@ class VisitorDetectionsView(APIView):
 
 # -------------------------------work fine only with detecte_time filter--
 # report
-#     # chat----->
+#     # chat when many to many field was available----->
     
+# from django.db.models import Q
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from rest_framework.pagination import PageNumberPagination
+# from django.utils import timezone
+# from django.db.models import Q, Count
+# from django.db.models.functions import TruncHour, TruncDay
+# from datetime import timedelta
+# from dateutil.parser import parse as parse_datetime
+# import logging
+# from .models import VisitorEventHistory, Visitor
+# from .serializers import VisitorEventHistorySerializer
+# logger = logging.getLogger(__name__)
+# class VisitorReportPagination(PageNumberPagination):
+#     page_size = 10
+#     page_size_query_param = 'page_size'
+# class VisitorReportAPIView(APIView):
+#     pagination_class = VisitorReportPagination
+#     def get(self, request):
+#         try:
+#             start_time = request.query_params.get('start_time')
+#             end_time = request.query_params.get('end_time')
+#             last_minutes = request.query_params.get('last_minutes')
+#             last_days = request.query_params.get('last_days')
+#             camera_id = request.query_params.get('camera_id')
+#             visitor_id = request.query_params.get('visitor_id')
+#             visitor_name = request.query_params.get('visitor_name')
+#             # queryset = VisitorEventHistory.objects.prefetch_related('visitors').all().order_by('-detected_time')
+#             queryset = VisitorEventHistory.objects.all().order_by('-detected_time')
+#             def parse_dt(value):
+#                 try:
+#                     dt = parse_datetime(value)
+#                     if timezone.is_naive(dt):
+#                         dt = timezone.make_aware(dt, timezone=timezone.utc)
+#                     return dt
+#                 except Exception as e:
+#                     logger.warning(f"Invalid datetime input: {value} -> {e}")
+#                     return None
+#             start_dt = parse_dt(start_time) if start_time else None
+#             end_dt = parse_dt(end_time) if end_time else None
+#             if start_dt:
+#                 queryset = queryset.filter(detected_time__gte=start_dt)
+#             if end_dt:
+#                 queryset = queryset.filter(detected_time__lte=end_dt)
+#             if last_minutes:
+#                 try:
+#                     minutes = int(last_minutes)
+#                     threshold = timezone.now() - timedelta(minutes=minutes)
+#                     queryset = queryset.filter(detected_time__gte=threshold)
+#                 except ValueError:
+#                     return Response({"error": "last_minutes must be an integer"}, status=400)
+#             if last_days:
+#                 try:
+#                     days = int(last_days)
+#                     threshold = timezone.now() - timedelta(days=days)
+#                     queryset = queryset.filter(detected_time__gte=threshold)
+#                 except ValueError:
+#                     return Response({"error": "last_days must be an integer"}, status=400)
+#             if camera_id:
+#                 queryset = queryset.filter(camera_id=camera_id)
+        
+#             # if visitor_id:
+#             #     queryset = queryset.filter(visitors__id=visitor_id)
+#             # if visitor_name:
+#             #     queryset = queryset.filter(
+#             #         Q(visitors__first_name__icontains=visitor_name) |
+#             #         Q(visitors__last_name__icontains=visitor_name)
+#             #   )
+                
+#             if visitor_id:
+#                 queryset = queryset.filter(visitor_ids__contains=[visitor_id])
+
+#             if visitor_name:
+#                 visitor_matches = Visitor.objects.filter(
+#                     Q(first_name__icontains=visitor_name) | Q(last_name__icontains=visitor_name)
+#                 ).values_list('id', flat=True)
+#                 queryset = queryset.filter(
+#                     visitor_ids__overlap=list(visitor_matches)
+#                 )
+
+#             # Paginate standard list
+#             paginator = self.pagination_class()
+#             page = paginator.paginate_queryset(queryset, request)
+#             serializer = VisitorEventHistorySerializer(page, many=True)
+#             return paginator.get_paginated_response(serializer.data)
+#         except Exception as e:
+#             logger.exception("❌ Error in VisitorReportAPIView")
+#             return Response({"error": "Internal Server Error"}, status=500)
+
+
+
+# without many to many field ---->
+
+# views.py
 from django.db.models import Q
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
-from django.db.models import Q, Count
-from django.db.models.functions import TruncHour, TruncDay
 from datetime import timedelta
 from dateutil.parser import parse as parse_datetime
 import logging
+
 from .models import VisitorEventHistory, Visitor
 from .serializers import VisitorEventHistorySerializer
+
 logger = logging.getLogger(__name__)
+
+
 class VisitorReportPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
+
+
 class VisitorReportAPIView(APIView):
     pagination_class = VisitorReportPagination
+
     def get(self, request):
         try:
+            # Query params
             start_time = request.query_params.get('start_time')
             end_time = request.query_params.get('end_time')
             last_minutes = request.query_params.get('last_minutes')
@@ -823,7 +636,10 @@ class VisitorReportAPIView(APIView):
             camera_id = request.query_params.get('camera_id')
             visitor_id = request.query_params.get('visitor_id')
             visitor_name = request.query_params.get('visitor_name')
-            queryset = VisitorEventHistory.objects.prefetch_related('visitors').all().order_by('-detected_time')
+
+            queryset = VisitorEventHistory.objects.all().order_by('-detected_time')
+
+            # Parse datetimes safely
             def parse_dt(value):
                 try:
                     dt = parse_datetime(value)
@@ -833,41 +649,52 @@ class VisitorReportAPIView(APIView):
                 except Exception as e:
                     logger.warning(f"Invalid datetime input: {value} -> {e}")
                     return None
-            start_dt = parse_dt(start_time) if start_time else None
-            end_dt = parse_dt(end_time) if end_time else None
-            if start_dt:
-                queryset = queryset.filter(detected_time__gte=start_dt)
-            if end_dt:
-                queryset = queryset.filter(detected_time__lte=end_dt)
+
+            # Time filtering
+            if start_time:
+                start_dt = parse_dt(start_time)
+                if start_dt:
+                    queryset = queryset.filter(detected_time__gte=start_dt)
+
+            if end_time:
+                end_dt = parse_dt(end_time)
+                if end_dt:
+                    queryset = queryset.filter(detected_time__lte=end_dt)
+
             if last_minutes:
                 try:
-                    minutes = int(last_minutes)
-                    threshold = timezone.now() - timedelta(minutes=minutes)
+                    threshold = timezone.now() - timedelta(minutes=int(last_minutes))
                     queryset = queryset.filter(detected_time__gte=threshold)
                 except ValueError:
-                    return Response({"error": "last_minutes must be an integer"}, status=400)
+                    return Response({"error": "Invalid last_minutes"}, status=400)
+
             if last_days:
                 try:
-                    days = int(last_days)
-                    threshold = timezone.now() - timedelta(days=days)
+                    threshold = timezone.now() - timedelta(days=int(last_days))
                     queryset = queryset.filter(detected_time__gte=threshold)
                 except ValueError:
-                    return Response({"error": "last_days must be an integer"}, status=400)
+                    return Response({"error": "Invalid last_days"}, status=400)
+
             if camera_id:
                 queryset = queryset.filter(camera_id=camera_id)
-        
+
             if visitor_id:
-                queryset = queryset.filter(visitors__id=visitor_id)
+                queryset = [event for event in queryset if visitor_id in event.visitor_ids]
+
             if visitor_name:
-                queryset = queryset.filter(
-                    Q(visitors__first_name__icontains=visitor_name) |
-                    Q(visitors__last_name__icontains=visitor_name)
-                )
-            # Paginate standard list
+                matched_visitors = Visitor.objects.filter(
+                    Q(first_name__icontains=visitor_name) |
+                    Q(last_name__icontains=visitor_name)
+                ).values_list('id', flat=True)
+
+                queryset = [event for event in queryset if any(v_id in event.visitor_ids for v_id in matched_visitors)]
+
+            # Paginate & serialize
             paginator = self.pagination_class()
             page = paginator.paginate_queryset(queryset, request)
             serializer = VisitorEventHistorySerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
+
         except Exception as e:
             logger.exception("❌ Error in VisitorReportAPIView")
             return Response({"error": "Internal Server Error"}, status=500)

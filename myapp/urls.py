@@ -6,7 +6,7 @@ from django.urls import path
 # # VisitorListCreateAPIView, VisitorDetailAPIView,VisitorActiveAPIView,SoftDeleteVisitorListAPIView,SoftDeleteVisitorDetailAPIView,TrackedVisitorDetailAPIView,TrackedVisitorAPIView,UntrackedVisitorAPIView,UntrackedVisitorDetailAPIView,PermanentDeleteVisitorAPIView,VisitorTrackAPIView
 
 
-from .views import VisitorAPIView, RestoreVisitorAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorReportAPIView,MockMLServerView,ToggleTrackingAPIView,CameraUpdateView
+from .views import VisitorAPIView, RestoreVisitorAPIView,MLDetectionAPIView,VisitorDetectionsView,VisitorReportAPIView,MockMLServerView,ToggleTrackingAPIView,CameraUpdateView,VisitorLastLocationAPIView,VisitorEventDeleteAPIView
 
 urlpatterns = [
     # path('gateway/', VisitorTrackingAPIView.as_view(),name='visitor_tracking'),
@@ -26,7 +26,7 @@ urlpatterns = [
     # path('api/visitor/getins/',VisitorTrackAPIView.as_view(),name='visitorgetinstitute')
     path('visitor/', VisitorAPIView.as_view()),              # List, Create
     path('visitor/<str:pk>/', VisitorAPIView.as_view()),     # Detail, Update, Delete
-    path('visitor/restore/<str:pk>', RestoreVisitorAPIView.as_view()),  # Restore
+    path('visitor/restore/<str:pk>/', RestoreVisitorAPIView.as_view()),  # Restore
     # path('api/visitor/types/', VisitorTypeAPIView.as_view(), name='visitor-types'),
     path('ml-detect/', MLDetectionAPIView.as_view(), name='ml_detect'),
     path('visitor/detections/<str:visitor_id>/', VisitorDetectionsView.as_view(), name='visitor-detections'),
@@ -37,6 +37,9 @@ urlpatterns = [
 
     path('visitors/toggle-tracking/<str:pk>/', ToggleTrackingAPIView.as_view(), name='toggle-tracking'),
     path('fetch_camera/', CameraUpdateView.as_view(), name='fetch_camera'),
+    path('visitors/last-location/<str:pk>/', VisitorLastLocationAPIView.as_view(), name='visitor-last-location'),
+    path("events/delete/<str:pk>/", VisitorEventDeleteAPIView.as_view(), name="delete-event"),
+
 
     
 

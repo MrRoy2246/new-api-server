@@ -57,7 +57,6 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             logger.error(f"Error during disconnect: {e}")
     async def notification_message(self, event):
         message = event['message']
-        logger.info(f"📤 Sending to WebSocket client: {message}")
         print("Message backend :", message)  
         await self.send(text_data=json.dumps({
             'message': message,

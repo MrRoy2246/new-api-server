@@ -14,7 +14,7 @@
  
 # # Specify the bucket name and folder (prefix)
 # bucket_name = "acceleye-media"
-# prefix = "ori_detect_image_no_box/"  # This could be your folder or prefix in the bucket
+# prefix = "detect_image/"  # This could be your folder or prefix in the bucket
 # count = 0
 # try:
 #     objects = client.list_objects(bucket_name, prefix=prefix, recursive=True)
@@ -27,6 +27,10 @@
 #         # time.sleep(0.02)
 # except Exception as e:
 #     print(f"Error deleting bucket {bucket_name}: {e}")
+
+
+
+
 
 from minio import Minio
 from minio.error import S3Error
@@ -42,7 +46,7 @@ client = Minio(
 )
  
 bucket_name = "acceleye-media"
-prefix = "ori_detect_image_no_box/"
+prefix = "detect_image/" 
 batch_size = 100  # number of files to delete per batch/thread group
 
 # Delete one object
